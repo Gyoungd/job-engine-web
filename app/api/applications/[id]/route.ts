@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase/server'
 
-const VALID_STATUSES = ['draft', 'docs_copied', 'submitted', 'interview', 'offer', 'rejected', 'withdrawn']
+const VALID_STATUSES = ['draft', 'docs_copied', 'submitted', 'sent_cold', 'online_test', 'interview', 'offer', 'rejected', 'withdrawn']
 
 export async function GET(
   _req: NextRequest,
@@ -39,6 +39,9 @@ export async function PATCH(
 
     if (body.status && VALID_STATUSES.includes(body.status)) {
       updates.status = body.status
+      if (['sent_cold', 'online_test', 'interview', 'offer', 'rejected'].includes(body.status)) {
+        updates.response_status = body.status
+      }
     }
 
     if (typeof body.notes === 'string') {

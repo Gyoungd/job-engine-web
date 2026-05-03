@@ -109,8 +109,8 @@ applications        Resume drafts and submission tracking
   - id (UUID PK), jd_hash (FK → seen_jobs.hash)
   - folder_path       e.g., "2026-05-04_musinsa_DS"
   - classified_role, resume_changes, doc_url, doc_id
-  - status            'draft' | 'docs_copied' | 'submitted' | 'pending'
-                      | 'phone' | 'offer' | 'rejected'
+  - status            'draft' | 'docs_copied' | 'submitted' | 'sent_cold'
+                      | 'online_test' | 'interview' | 'offer' | 'rejected' | 'withdrawn'
   - suitability_pct, submitted_at, response_status, notes
   - created_at, updated_at
 
@@ -188,6 +188,7 @@ Each tab section maps UI components to API endpoints, with implementation status
 | Sort dropdown           | Newest / Oldest / Score desc                   | `GET /api/queue?sort=`            | ✅      |
 | Result list (paginated) | Job cards with same layout as Home top picks   | `GET /api/queue?limit=20&offset=` | ✅      |
 | Generate resume button  | Same as Home tab                               | `POST /api/generate-resume`       | ✅      |
+| Sticky header           | 검색 + 필터 + 정렬 고정, 결과 리스트만 스크롤                   | CSS `position: sticky`            | ✅      |
 
 
 ---
@@ -228,9 +229,10 @@ Each tab section maps UI components to API endpoints, with implementation status
 | Status filter          | All / Submitted / Interview / Rejected                | `GET /api/applications?status=` | ✅      |
 | Sort dropdown          | Newest / Oldest / Response date                       | `GET /api/applications?sort=`   | ✅      |
 | Application table      | Date / Company / Role / Tier / Suit% / Status / Notes | `GET /api/applications`         | ✅      |
-| Status update dropdown | Inline edit per row                                   | `PATCH /api/applications/:id`   | ✅      |
+| Status update dropdown | Inline edit per row; auto-sets response_status        | `PATCH /api/applications/:id`   | ✅      |
 | Notes inline edit      | Editable text per row                                 | `PATCH /api/applications/:id`   | ✅      |
-| Sync to Sheets button  | Push all changes to Google Sheets                     | `POST /api/sheets/sync`         | ✅      |
+| Auto Sheets sync       | Status/notes 변경 시 자동 full sync to Google Sheets       | `POST /api/sheets/sync`         | ✅      |
+| Sticky header          | Stats + filters + sort 고정, 카드 리스트만 스크롤                | CSS `position: sticky`          | ✅      |
 | View JD link           | Open original JD URL                                  | External link                   | ✅      |
 | View doc link          | Open Google Doc                                       | External link                   | ✅      |
 
@@ -322,9 +324,9 @@ Complete API surface with implementation status.
 ### Sheets sync
 
 
-| Method | Path               | Purpose                     | Status |
-| ------ | ------------------ | --------------------------- | ------ |
-| POST   | `/api/sheets/sync` | Full Supabase → Sheets sync | ✅      |
+| Method | Path               | Purpose                                                                        | Status |
+| ------ | ------------------ | ------------------------------------------------------------------------------ | ------ |
+| POST   | `/api/sheets/sync` | Full Supabase → Sheets sync (submitted/interview/offer/rejected + Response 컬럼) | ✅      |
 
 
 ### Configuration
@@ -400,7 +402,7 @@ Completed:
 
 ---
 
-### Phase 5 — Cloud Collection & Profile Tab 🟡 IN PROGRESS
+### Phase 5 — Cloud Collection & Profile Tab ✅ COMPLETE
 
 **Goal:** Replace local SQLite collection with cloud-based GitHub Actions cron pushing to Supabase. Add Profile tab collection health monitoring. Complete Search tab.
 
@@ -410,17 +412,23 @@ Completed:
 - Push notifications (deferred to Phase 5.1 pending usage data)
 - Settings persistence (`/api/config` deferred to Phase B)
 
-**All code tasks completed:**
+**All tasks completed:**
 
 - ✅ Task 1: `supabase_utils.py` — atomic UPSERT helpers for cloud collection (`scripts/collection/`)
 - ✅ Task 2: Collector dual-write flags (`--push-supabase` on collectors, `--supabase` on dedup)
 - ✅ Task 3: GitHub Actions workflows (`collect-gmail.yml`, `collect-adzuna.yml`)
+- ✅ Task 4: GitHub Secrets configuration (6 secrets — manually configured in GitHub Environment: Production)
 - ✅ Task 5: Profile tab UI + `GET /api/collection-runs/summary` API
 - ✅ Task 6: Search tab UI + `GET /api/queue` text search (`q`), sort, pagination
 
-**Pending setup (manual):**
+**Pipeline UX & Sheets sync (post-Task 6):**
 
-- ⏳ Task 4: GitHub Secrets configuration (6 secrets — see below)
+- ✅ `PATCH /api/applications/:id` — status 변경 시 `response_status` 자동 매핑 (`sent_cold`, `online_test`, `interview`, `offer`, `rejected`)
+- ✅ `POST /api/sheets/sync` — 범위 확장: `submitted`/`sent_cold`/`online_test`/`interview`/`offer`/`rejected` + Response 컬럼
+- ✅ Status/notes 변경 시 자동 Google Sheets full sync (fire-and-forget)
+- ✅ Pipeline/Search 탭 sticky header UX (stats + filters 고정, 카드 리스트 스크롤)
+- ✅ Status 선택지 추가: `sent_cold` (Sent Cold 📧), `online_test` (Online Test)
+- ✅ `GOOGLE_SHEET_ID` 환경변수 설정 + `.env.local` 서비스 계정 JSON 수정 (single-line)
 
 #### Task 1 — Supabase write layer (Python)
 
@@ -783,14 +791,15 @@ Items deferred indefinitely or pending business case validation.
 ## 9. Change Log
 
 
-| Date       | Phase          | Summary                                                                                                                                                            |
-| ---------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 2026-05-02 | Phase 1-2      | Initial setup, deployment, queue APIs, Home tab                                                                                                                    |
-| 2026-05-03 | Phase 3        | Rank, generate-resume, docs/copy-base APIs + OAuth                                                                                                                 |
-| 2026-05-03 | Phase 4        | Home API wiring, Drafts tab, Pipeline tab, 4 new APIs                                                                                                              |
-| 2026-05-03 | Phase 4.1      | UX fixes: draft state on Home cards, Generate Docs → Open Resume, duplicate prevention, OAuth account switch                                                       |
-| 2026-05-04 | Phase 5 spec   | Cloud collection cadence finalized (Gmail 8x/day @ 2hr, Adzuna 1x/day); email digest removed; Profile tab spec'd; Phase 5.1 (PWA push) deferred pending usage data |
-| 2026-05-04 | Phase 5 (web)  | Profile tab (collection monitoring cards) + Search tab (text search, filters, sort, pagination) + collection-runs/summary API                                      |
-| 2026-05-04 | Phase 5 (cron) | supabase_utils.py, dual-write collectors (--push-supabase), GH Actions workflows, config/scripts integrated into job-engine-web                                    |
+| Date       | Phase          | Summary                                                                                                                                                                                                    |
+| ---------- | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 2026-05-02 | Phase 1-2      | Initial setup, deployment, queue APIs, Home tab                                                                                                                                                            |
+| 2026-05-03 | Phase 3        | Rank, generate-resume, docs/copy-base APIs + OAuth                                                                                                                                                         |
+| 2026-05-03 | Phase 4        | Home API wiring, Drafts tab, Pipeline tab, 4 new APIs                                                                                                                                                      |
+| 2026-05-03 | Phase 4.1      | UX fixes: draft state on Home cards, Generate Docs → Open Resume, duplicate prevention, OAuth account switch                                                                                               |
+| 2026-05-04 | Phase 5 spec   | Cloud collection cadence finalized (Gmail 8x/day @ 2hr, Adzuna 1x/day); email digest removed; Profile tab spec'd; Phase 5.1 (PWA push) deferred pending usage data                                         |
+| 2026-05-04 | Phase 5 (web)  | Profile tab (collection monitoring cards) + Search tab (text search, filters, sort, pagination) + collection-runs/summary API                                                                              |
+| 2026-05-04 | Phase 5 (cron) | supabase_utils.py, dual-write collectors (--push-supabase), GH Actions workflows, config/scripts integrated into job-engine-web                                                                            |
+| 2026-05-04 | Phase 5 UX     | Pipeline: response_status 자동 매핑, 자동 Sheets full sync, sticky header; Search: sticky header; Sheets sync 범위 확장 + Response 컬럼; status 추가 (sent_cold, online_test); .env.local SA JSON 수정; Phase 5 ✅ COMPLETE |
 
 

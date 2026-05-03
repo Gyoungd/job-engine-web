@@ -67,12 +67,14 @@ const ROLE_COLORS: Record<string, string> = {
   DE: '#90b4da',
 }
 
-const STATUS_OPTIONS = ['draft', 'docs_copied', 'submitted', 'interview', 'offer', 'rejected', 'withdrawn']
+const STATUS_OPTIONS = ['draft', 'docs_copied', 'submitted', 'sent_cold', 'online_test', 'interview', 'offer', 'rejected', 'withdrawn']
 
 const STATUS_LABELS: Record<string, { label: string; color: string; bg: string }> = {
   draft:       { label: 'Draft',       color: '#6b7785', bg: '#f0f5fa' },
   docs_copied: { label: 'Docs Ready',  color: '#b8860b', bg: '#fef9e7' },
   submitted:   { label: 'Submitted',   color: '#4682bf', bg: '#e8f0fe' },
+  sent_cold:   { label: 'Sent Cold 📧', color: '#7b68ee', bg: '#ede7f6' },
+  online_test: { label: 'Online Test', color: '#e67e22', bg: '#fef5e7' },
   interview:   { label: 'Interview',   color: '#1a8b5f', bg: '#e6f7ef' },
   offer:       { label: 'Offer',       color: '#1a8b5f', bg: '#d4edda' },
   rejected:    { label: 'Rejected',    color: '#c0392b', bg: '#fde8e8' },
@@ -401,6 +403,7 @@ export default function Home() {
           d.id === appId ? { ...d, status: 'submitted' } : d
         ))
         setHomeDrafts(prev => prev.filter(d => d.id !== appId))
+        fetch('/api/sheets/sync', { method: 'POST' }).catch(() => {})
         fetchHomeData()
       }
     } catch (e) {
@@ -497,7 +500,13 @@ export default function Home() {
         body: JSON.stringify({ status: newStatus }),
       })
       if (res.ok) {
-        setPipelineApps(prev => prev.map(a => a.id === appId ? { ...a, status: newStatus } : a))
+        const responseStatus = ['sent_cold', 'online_test', 'interview', 'offer', 'rejected'].includes(newStatus) ? newStatus : undefined
+        setPipelineApps(prev => prev.map(a => a.id === appId
+          ? { ...a, status: newStatus, ...(responseStatus ? { response_status: responseStatus } : {}) }
+          : a
+        ))
+        fetch('/api/sheets/sync', { method: 'POST' }).catch(() => {})
+        fetchHomeData()
       }
     } catch (e) {
       console.error('Status update failed:', e)
@@ -524,6 +533,7 @@ export default function Home() {
           delete next[appId]
           return next
         })
+        fetch('/api/sheets/sync', { method: 'POST' }).catch(() => {})
       }
     } catch (e) {
       console.error('Note save failed:', e)
@@ -1022,7 +1032,12 @@ export default function Home() {
 
           {/* ═══ PIPELINE TAB ═══ */}
           {activeTab === 'pipeline' && (
-            <div style={{ padding: '0 20px 20px' }}>
+            <div style={{ padding: '0 0 20px' }}>
+              {/* Sticky header: stats + filters */}
+              <div style={{
+                position: 'sticky', top: 0, zIndex: 10,
+                background: '#f8fafb', padding: '0 20px 4px',
+              }}>
               {/* Summary row */}
               <div style={{
                 display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, margin: '12px 0 16px',
@@ -1081,7 +1096,9 @@ export default function Home() {
                   Refresh
                 </button>
               </div>
+              </div>{/* end sticky header */}
 
+              <div style={{ padding: '0 20px' }}>
               {pipelineLoading ? (
                 <div style={{ textAlign: 'center', padding: 40, color: '#6b7785', fontSize: 13 }}>Loading pipeline...</div>
               ) : pipelineApps.length === 0 ? (
@@ -1139,8 +1156,11 @@ export default function Home() {
                         )}
                         <span>{app.submitted_at ? app.submitted_at.slice(0, 10) : app.created_at.slice(0, 10)}</span>
                         {app.response_status && (
-                          <span style={{ fontWeight: 600, color: app.response_status === 'rejected' ? '#c0392b' : '#1a8b5f' }}>
-                            {app.response_status}
+                          <span style={{
+                            fontWeight: 600,
+                            color: STATUS_LABELS[app.response_status]?.color ?? '#6b7785',
+                          }}>
+                            {STATUS_LABELS[app.response_status]?.label ?? app.response_status}
                           </span>
                         )}
                       </div>
@@ -1219,12 +1239,18 @@ export default function Home() {
                   )
                 })
               )}
+              </div>{/* end content area */}
             </div>
           )}
 
           {/* ═══ SEARCH TAB ═══ */}
           {activeTab === 'search' && (
-            <div style={{ padding: '0 20px 20px' }}>
+            <div style={{ padding: '0 0 20px' }}>
+              {/* Sticky header: search + filters + sort */}
+              <div style={{
+                position: 'sticky', top: 0, zIndex: 10,
+                background: '#f8fafb', padding: '0 20px 4px',
+              }}>
               {/* Search input */}
               <div style={{ margin: '12px 0 12px' }}>
                 <div style={{ display: 'flex', gap: 8 }}>
@@ -1291,7 +1317,9 @@ export default function Home() {
                   <option value="score">Score ↓</option>
                 </select>
               </div>
+              </div>{/* end sticky header */}
 
+              <div style={{ padding: '0 20px' }}>
               {/* Results */}
               {searchLoading && searchJobs.length === 0 ? (
                 <div style={{ textAlign: 'center', padding: 40, color: '#6b7785', fontSize: 13 }}>Searching...</div>
@@ -1425,6 +1453,7 @@ export default function Home() {
                   )}
                 </>
               )}
+              </div>{/* end content area */}
             </div>
           )}
 

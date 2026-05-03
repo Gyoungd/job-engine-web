@@ -13,18 +13,18 @@ export async function POST() {
     const { data: apps, error } = await supabaseAdmin
       .from('applications')
       .select('*, seen_jobs!inner(title, company, location, url, classified_role)')
-      .eq('status', 'submitted')
-      .order('submitted_at', { ascending: false })
+      .in('status', ['submitted', 'sent_cold', 'online_test', 'interview', 'offer', 'rejected'])
+      .order('submitted_at', { ascending: false, nullsFirst: false })
 
     if (error) throw error
 
     if (!apps || apps.length === 0) {
-      return NextResponse.json({ synced: 0, message: 'No submitted applications to sync' })
+      return NextResponse.json({ synced: 0, message: 'No applications to sync' })
     }
 
     const sheets = getSheets()
 
-    const header = ['Date', 'Company', 'Role', 'Type', 'Suit%', 'Status', 'Doc URL', 'JD URL', 'Notes']
+    const header = ['Date', 'Company', 'Role', 'Type', 'Suit%', 'Status', 'Response', 'Doc URL', 'JD URL', 'Notes']
 
     const rows = apps.map(app => {
       const job = app.seen_jobs
@@ -35,6 +35,7 @@ export async function POST() {
         app.classified_role ?? '',
         app.suitability_pct ?? '',
         app.status ?? '',
+        app.response_status ?? '',
         app.doc_url ?? '',
         job?.url ?? '',
         app.notes ?? '',
