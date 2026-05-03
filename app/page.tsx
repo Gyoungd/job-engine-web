@@ -211,6 +211,24 @@ export default function Home() {
   const [copyingDoc, setCopyingDoc] = useState<Record<string, boolean>>({})
   const [markingApplied, setMarkingApplied] = useState<Record<string, boolean>>({})
 
+  /* ─── Search state ─── */
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchRole, setSearchRole] = useState('all')
+  const [searchRegion, setSearchRegion] = useState('all')
+  const [searchSource, setSearchSource] = useState('all')
+  const [searchSort, setSearchSort] = useState('newest')
+  const [searchJobs, setSearchJobs] = useState<Job[]>([])
+  const [searchTotal, setSearchTotal] = useState(0)
+  const [searchOffset, setSearchOffset] = useState(0)
+  const [searchLoading, setSearchLoading] = useState(false)
+
+  /* ─── Profile state ─── */
+  const [collectionSummary, setCollectionSummary] = useState<{
+    today: { runs: number; new_jds: number; last_new_jd_at: string | null }
+    week: { runs: number; new_jds: number }
+  } | null>(null)
+  const [profileLoading, setProfileLoading] = useState(false)
+
   /* ─── Pipeline state ─── */
   const [pipelineApps, setPipelineApps] = useState<Application[]>([])
   const [pipelineLoading, setPipelineLoading] = useState(false)
@@ -391,6 +409,56 @@ export default function Home() {
       setMarkingApplied(prev => ({ ...prev, [appId]: false }))
     }
   }
+
+  /* ─── Search tab data fetch ─── */
+  const fetchSearch = useCallback(async (resetOffset = true) => {
+    setSearchLoading(true)
+    const off = resetOffset ? 0 : searchOffset
+    if (resetOffset) setSearchOffset(0)
+    try {
+      const params = new URLSearchParams({ limit: '20', offset: String(off) })
+      if (searchQuery) params.set('q', searchQuery)
+      if (searchRole !== 'all') params.set('role', searchRole)
+      if (searchRegion !== 'all') params.set('region', searchRegion)
+      if (searchSource !== 'all') params.set('source', searchSource)
+      if (searchSort !== 'newest') params.set('sort', searchSort)
+      const res = await fetch(`/api/queue?${params}`)
+      const data = await res.json()
+      if (resetOffset) {
+        setSearchJobs(data.jobs ?? [])
+      } else {
+        setSearchJobs(prev => [...prev, ...(data.jobs ?? [])])
+      }
+      setSearchTotal(data.total ?? 0)
+    } catch (e) {
+      console.error('Search fetch failed:', e)
+    } finally {
+      setSearchLoading(false)
+    }
+  }, [searchQuery, searchRole, searchRegion, searchSource, searchSort, searchOffset])
+
+  useEffect(() => {
+    if (activeTab === 'search') fetchSearch(true)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, searchRole, searchRegion, searchSource, searchSort])
+
+  /* ─── Profile tab data fetch ─── */
+  const fetchProfile = useCallback(async () => {
+    setProfileLoading(true)
+    try {
+      const res = await fetch('/api/collection-runs/summary')
+      const data = await res.json()
+      if (!data.error) setCollectionSummary(data)
+    } catch (e) {
+      console.error('Profile fetch failed:', e)
+    } finally {
+      setProfileLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (activeTab === 'profile') fetchProfile()
+  }, [activeTab, fetchProfile])
 
   /* ─── Pipeline tab data fetch ─── */
   const fetchPipeline = useCallback(async () => {
@@ -1154,38 +1222,348 @@ export default function Home() {
             </div>
           )}
 
-          {/* ═══ SEARCH TAB (placeholder) ═══ */}
+          {/* ═══ SEARCH TAB ═══ */}
           {activeTab === 'search' && (
             <div style={{ padding: '0 20px 20px' }}>
-              <div style={{
-                background: 'white', borderRadius: 16, padding: 32, marginTop: 16,
-                border: '1px solid #e8eef5', textAlign: 'center', color: '#6b7785', fontSize: 13,
-              }}>
-                Search & filters coming in Phase 5.
+              {/* Search input */}
+              <div style={{ margin: '12px 0 12px' }}>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={e => setSearchQuery(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') fetchSearch(true) }}
+                    placeholder="Search by title or company..."
+                    style={{
+                      flex: 1, padding: '10px 14px', borderRadius: 10, fontSize: 13,
+                      border: '1px solid #e8eef5', outline: 'none', color: '#1a2332',
+                      background: 'white',
+                    }}
+                  />
+                  <button
+                    onClick={() => fetchSearch(true)}
+                    style={{
+                      padding: '10px 16px', borderRadius: 10, fontSize: 13, fontWeight: 600,
+                      border: 'none', cursor: 'pointer', background: '#4682bf', color: 'white',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    Search
+                  </button>
+                </div>
               </div>
+
+              {/* Filter bar */}
+              <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
+                <select value={searchRole} onChange={e => setSearchRole(e.target.value)}
+                  style={{ flex: 1, padding: '8px 10px', borderRadius: 8, fontSize: 12, border: '1px solid #e8eef5', background: 'white', color: '#1a2332', cursor: 'pointer', minWidth: 80 }}>
+                  <option value="all">All Roles</option>
+                  <option value="DA">DA</option>
+                  <option value="DS">DS</option>
+                  <option value="DE">DE</option>
+                </select>
+                <select value={searchRegion} onChange={e => setSearchRegion(e.target.value)}
+                  style={{ flex: 1, padding: '8px 10px', borderRadius: 8, fontSize: 12, border: '1px solid #e8eef5', background: 'white', color: '#1a2332', cursor: 'pointer', minWidth: 80 }}>
+                  <option value="all">All Regions</option>
+                  <option value="melbourne">Melbourne</option>
+                  <option value="korea">Korea</option>
+                  <option value="singapore">Singapore</option>
+                  <option value="malaysia">Malaysia</option>
+                </select>
+                <select value={searchSource} onChange={e => setSearchSource(e.target.value)}
+                  style={{ flex: 1, padding: '8px 10px', borderRadius: 8, fontSize: 12, border: '1px solid #e8eef5', background: 'white', color: '#1a2332', cursor: 'pointer', minWidth: 80 }}>
+                  <option value="all">All Sources</option>
+                  <option value="linkedin">LinkedIn</option>
+                  <option value="seek">Seek</option>
+                  <option value="adzuna">Adzuna</option>
+                </select>
+              </div>
+
+              {/* Sort + results count */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                <span style={{ fontSize: 12, color: '#6b7785' }}>
+                  {searchTotal} results
+                </span>
+                <select value={searchSort} onChange={e => setSearchSort(e.target.value)}
+                  style={{ padding: '6px 10px', borderRadius: 8, fontSize: 12, border: '1px solid #e8eef5', background: 'white', color: '#1a2332', cursor: 'pointer' }}>
+                  <option value="newest">Newest</option>
+                  <option value="oldest">Oldest</option>
+                  <option value="score">Score ↓</option>
+                </select>
+              </div>
+
+              {/* Results */}
+              {searchLoading && searchJobs.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: 40, color: '#6b7785', fontSize: 13 }}>Searching...</div>
+              ) : searchJobs.length === 0 ? (
+                <div style={{
+                  background: 'white', borderRadius: 16, padding: 32,
+                  border: '1px solid #e8eef5', textAlign: 'center', color: '#6b7785', fontSize: 13,
+                }}>
+                  No jobs found. Try different filters.
+                </div>
+              ) : (
+                <>
+                  {searchJobs.map(job => {
+                    const existingDraft = draftsByHash[job.hash]
+                    const hasDraft = !!existingDraft
+                    const genState = hasDraft ? 'done' as GenState : (generating[job.hash] ?? 'idle')
+                    const role = job.classified_role?.toUpperCase() ?? 'DA'
+                    const draftStatus = existingDraft?.status
+
+                    return (
+                      <div key={job.hash} style={{
+                        background: hasDraft ? '#f8fbff' : 'white', borderRadius: 16, padding: 14,
+                        marginBottom: 10, border: `1px solid ${hasDraft ? '#b4cde7' : '#e8eef5'}`,
+                      }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+                          <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                            {job.score != null && (
+                              <span style={{ background: '#d9e6f3', color: '#1a4a7c', fontSize: 11, fontWeight: 600, padding: '3px 8px', borderRadius: 6 }}>
+                                {job.score} fit
+                              </span>
+                            )}
+                            {hasDraft && (
+                              <span style={{
+                                background: draftStatus === 'submitted' ? '#e6f7ef' : '#e8f0fe',
+                                color: draftStatus === 'submitted' ? '#1a8b5f' : '#4682bf',
+                                fontSize: 10, fontWeight: 600, padding: '3px 8px', borderRadius: 6,
+                              }}>
+                                {draftStatus === 'submitted' ? '✓ Applied'
+                                  : draftStatus === 'docs_copied' ? '✓ Docs ready'
+                                  : '✓ Draft ready'}
+                              </span>
+                            )}
+                          </div>
+                          <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexShrink: 0 }}>
+                            <RoleBadge role={role} />
+                            {job.source_region && job.source_region !== 'unknown' && (
+                              <span style={{ fontSize: 10, color: '#6b7785', background: '#f0f5fa', padding: '3px 6px', borderRadius: 4 }}>
+                                {job.source_region}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        <div style={{ fontSize: 15, fontWeight: 600, color: '#1a2332', lineHeight: 1.3, marginBottom: 4 }}>
+                          {job.title}
+                        </div>
+                        <div style={{ fontSize: 13, color: '#4682bf', fontWeight: 500, marginBottom: 4 }}>
+                          {job.company ?? 'Company not listed'}
+                        </div>
+                        <div style={{ fontSize: 11.5, color: '#6b7785', marginBottom: 10, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                          <span>{job.location ?? 'Location TBC'}</span>
+                          <span style={{ width: 3, height: 3, background: '#b4cde7', borderRadius: '50%', display: 'inline-block' }} />
+                          <span>{timeAgo(job.first_seen)}</span>
+                          {job.source && (
+                            <>
+                              <span style={{ width: 3, height: 3, background: '#b4cde7', borderRadius: '50%', display: 'inline-block' }} />
+                              <span style={{ textTransform: 'capitalize' }}>{job.source}</span>
+                            </>
+                          )}
+                        </div>
+
+                        <div style={{ display: 'flex', gap: 8, borderTop: '1px solid #f0f4f8', paddingTop: 10 }}>
+                          <a href={job.url} target="_blank" rel="noopener noreferrer" style={{
+                            flex: 1, padding: 9, borderRadius: 8, fontSize: 12, fontWeight: 600,
+                            border: 'none', textAlign: 'center', background: '#f0f5fa', color: '#4682bf',
+                            textDecoration: 'none', display: 'block',
+                          }}>
+                            Preview JD
+                          </a>
+                          {hasDraft ? (
+                            <button
+                              onClick={() => setActiveTab('drafts')}
+                              style={{
+                                flex: 1, padding: 9, borderRadius: 8, fontSize: 12, fontWeight: 600,
+                                border: 'none', cursor: 'pointer', textAlign: 'center',
+                                background: '#1e3a5f', color: 'white',
+                              }}
+                            >
+                              View Draft →
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => handleGenerate(job.hash)}
+                              disabled={genState !== 'idle'}
+                              style={{
+                                flex: 1, padding: 9, borderRadius: 8, fontSize: 12, fontWeight: 600,
+                                border: 'none', textAlign: 'center',
+                                cursor: genState === 'idle' ? 'pointer' : 'default',
+                                background: genState === 'done' ? '#1e3a5f' : genState === 'error' ? '#c0392b' : '#b4cde7',
+                                color: genState === 'done' || genState === 'error' ? 'white' : '#4682bf',
+                                opacity: genState === 'loading' ? 0.7 : 1,
+                              }}
+                            >
+                              {genState === 'loading' ? 'Generating...'
+                                : genState === 'done' ? '✓ Resume Generated'
+                                : genState === 'error' ? '✗ Failed'
+                                : 'Generate resume'}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })}
+
+                  {/* Load more */}
+                  {searchJobs.length < searchTotal && (
+                    <button
+                      onClick={() => {
+                        setSearchOffset(searchJobs.length)
+                        setTimeout(() => fetchSearch(false), 0)
+                      }}
+                      disabled={searchLoading}
+                      style={{
+                        width: '100%', padding: 14, borderRadius: 12, fontSize: 13, fontWeight: 600,
+                        border: '1px solid #e8eef5', cursor: 'pointer', background: 'white', color: '#4682bf',
+                        marginTop: 4,
+                      }}
+                    >
+                      {searchLoading ? 'Loading...' : `Load more (${searchJobs.length} of ${searchTotal})`}
+                    </button>
+                  )}
+                </>
+              )}
             </div>
           )}
 
-          {/* ═══ PROFILE TAB (placeholder) ═══ */}
+          {/* ═══ PROFILE TAB ═══ */}
           {activeTab === 'profile' && (
             <div style={{ padding: '0 20px 20px' }}>
+              {/* User info card */}
               <div style={{
                 background: 'white', borderRadius: 16, padding: 20, marginTop: 16,
                 border: '1px solid #e8eef5',
               }}>
-                <div style={{ fontSize: 15, fontWeight: 600, color: '#1a2332', marginBottom: 12 }}>Gayoung Dan (Ina)</div>
-                <div style={{ fontSize: 12, color: '#6b7785', lineHeight: 1.6 }}>
-                  Master of Data Science — Monash University<br />
-                  Target: DA / DS / DE<br />
-                  Regions: Melbourne, Seoul, Singapore, Malaysia
+                <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 14 }}>
+                  <div style={{
+                    width: 48, height: 48, borderRadius: '50%',
+                    background: 'linear-gradient(135deg, #4682bf, #6c9bcd)',
+                    color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontWeight: 700, fontSize: 18,
+                  }}>
+                    I
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 16, fontWeight: 600, color: '#1a2332' }}>Gayoung Dan (Ina)</div>
+                    <div style={{ fontSize: 12, color: '#6b7785' }}>Master of Data Science — Monash University</div>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  {['DA', 'DS', 'DE'].map(r => (
+                    <span key={r} style={{
+                      fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 6,
+                      background: ROLE_COLORS[r] ?? '#6c9bcd', color: 'white',
+                    }}>{r}</span>
+                  ))}
+                  {['Melbourne', 'Seoul', 'Singapore', 'Malaysia'].map(r => (
+                    <span key={r} style={{
+                      fontSize: 11, fontWeight: 500, padding: '4px 10px', borderRadius: 6,
+                      background: '#f0f5fa', color: '#4682bf',
+                    }}>{r}</span>
+                  ))}
                 </div>
               </div>
-              <div style={{
-                background: 'white', borderRadius: 16, padding: 20, marginTop: 12,
-                border: '1px solid #e8eef5', textAlign: 'center', color: '#6b7785', fontSize: 13,
-              }}>
-                Settings & API health coming in Phase 5.
-              </div>
+
+              {/* Collection monitoring cards */}
+              {profileLoading ? (
+                <div style={{ textAlign: 'center', padding: 40, color: '#6b7785', fontSize: 13 }}>Loading collection data...</div>
+              ) : collectionSummary ? (
+                <>
+                  {/* Today's collection */}
+                  <div style={{
+                    background: 'white', borderRadius: 16, padding: 18, marginTop: 12,
+                    border: '1px solid #e8eef5', borderLeft: '3px solid #4682bf',
+                  }}>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: '#6b7785', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 10 }}>
+                      Today (24h)
+                    </div>
+                    <div style={{ display: 'flex', gap: 20 }}>
+                      <div>
+                        <div style={{ fontSize: 28, fontWeight: 700, color: '#1e3a5f', lineHeight: 1 }}>
+                          {collectionSummary.today.runs}
+                        </div>
+                        <div style={{ fontSize: 11, color: '#6b7785', marginTop: 4 }}>runs</div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 28, fontWeight: 700, color: '#4682bf', lineHeight: 1 }}>
+                          {collectionSummary.today.new_jds}
+                        </div>
+                        <div style={{ fontSize: 11, color: '#6b7785', marginTop: 4 }}>new JDs</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Last new JD */}
+                  <div style={{
+                    background: 'white', borderRadius: 16, padding: 18, marginTop: 10,
+                    border: '1px solid #e8eef5', borderLeft: '3px solid #1a8b5f',
+                  }}>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: '#6b7785', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>
+                      Last new JD
+                    </div>
+                    <div style={{ fontSize: 16, fontWeight: 600, color: '#1a2332' }}>
+                      {collectionSummary.today.last_new_jd_at
+                        ? timeAgo(collectionSummary.today.last_new_jd_at)
+                        : 'No JDs collected yet'}
+                    </div>
+                  </div>
+
+                  {/* This week */}
+                  <div style={{
+                    background: 'white', borderRadius: 16, padding: 18, marginTop: 10,
+                    border: '1px solid #e8eef5', borderLeft: '3px solid #b8860b',
+                  }}>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: '#6b7785', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 10 }}>
+                      This week (7d)
+                    </div>
+                    <div style={{ display: 'flex', gap: 20 }}>
+                      <div>
+                        <div style={{ fontSize: 28, fontWeight: 700, color: '#1e3a5f', lineHeight: 1 }}>
+                          {collectionSummary.week.runs}
+                        </div>
+                        <div style={{ fontSize: 11, color: '#6b7785', marginTop: 4 }}>runs</div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 28, fontWeight: 700, color: '#b8860b', lineHeight: 1 }}>
+                          {collectionSummary.week.new_jds}
+                        </div>
+                        <div style={{ fontSize: 11, color: '#6b7785', marginTop: 4 }}>new JDs</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Collection status info */}
+                  <div style={{
+                    background: '#f8fafb', borderRadius: 12, padding: 14, marginTop: 10,
+                    fontSize: 12, color: '#6b7785', lineHeight: 1.6,
+                  }}>
+                    {collectionSummary.today.runs === 0
+                      ? 'No collection runs in the last 24 hours. Cloud cron will be active after GitHub Actions setup (Phase 5 Tasks 1-4).'
+                      : `Collection active: ${collectionSummary.today.runs} runs today with ${collectionSummary.today.new_jds} new discoveries.`}
+                  </div>
+                </>
+              ) : (
+                <div style={{
+                  background: 'white', borderRadius: 16, padding: 24, marginTop: 12,
+                  border: '1px solid #e8eef5', textAlign: 'center', color: '#6b7785', fontSize: 13,
+                }}>
+                  Collection monitoring will activate after cron setup.
+                </div>
+              )}
+
+              {/* Refresh button */}
+              <button
+                onClick={fetchProfile}
+                style={{
+                  width: '100%', padding: 14, borderRadius: 12, fontSize: 13, fontWeight: 600,
+                  border: '1px solid #e8eef5', cursor: 'pointer', background: 'white', color: '#4682bf',
+                  marginTop: 12,
+                }}
+              >
+                Refresh collection data
+              </button>
             </div>
           )}
         </div>

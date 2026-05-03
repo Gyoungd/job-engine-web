@@ -2,7 +2,7 @@
 
 > **Last Updated:** 2026-05-04
 > **Owner:** Gayoung Dan (Ina)
-> **Status:** Active Development — Phase 4 COMPLETE, Phase 5 SPECIFIED, ready for implementation
+> **Status:** Active Development — Phase 5 IN PROGRESS (web tasks done, cron tasks pending)
 > **Repository:** [https://github.com/Gyoungd/job-engine-web](https://github.com/Gyoungd/job-engine-web)
 > **Production URL:** [https://job-engine-web.vercel.app](https://job-engine-web.vercel.app)
 
@@ -179,15 +179,15 @@ Each tab section maps UI components to API endpoints, with implementation status
 **Purpose:** Full-text and filter-based exploration of all collected JDs.
 
 
-| Component               | Function                                       | API                               | Status                          |
-| ----------------------- | ---------------------------------------------- | --------------------------------- | ------------------------------- |
-| Filter bar (role)       | All / DA / DS / DE                             | `GET /api/queue?role=`            | ⏳ Phase 5                       |
-| Filter bar (region)     | All / Melbourne / Korea / Singapore / Malaysia | `GET /api/queue?region=`          | ⏳ Phase 5                       |
-| Filter bar (source)     | All / LinkedIn / Seek / Adzuna                 | `GET /api/queue?source=`          | ⏳ Phase 5                       |
-| Search input            | Text search by title + company                 | `GET /api/queue?q=`               | ⏳ Phase 5 (API needs `q` param) |
-| Sort dropdown           | Newest / Oldest / Score desc                   | `GET /api/queue?sort=`            | ⏳ Phase 5                       |
-| Result list (paginated) | Job cards with same layout as Home top picks   | `GET /api/queue?limit=20&offset=` | ⏳ Phase 5                       |
-| Generate resume button  | Same as Home tab                               | `POST /api/generate-resume`       | ⏳ Phase 5                       |
+| Component               | Function                                       | API                               | Status |
+| ----------------------- | ---------------------------------------------- | --------------------------------- | ------ |
+| Filter bar (role)       | All / DA / DS / DE                             | `GET /api/queue?role=`            | ✅      |
+| Filter bar (region)     | All / Melbourne / Korea / Singapore / Malaysia | `GET /api/queue?region=`          | ✅      |
+| Filter bar (source)     | All / LinkedIn / Seek / Adzuna                 | `GET /api/queue?source=`          | ✅      |
+| Search input            | Text search by title + company                 | `GET /api/queue?q=`               | ✅      |
+| Sort dropdown           | Newest / Oldest / Score desc                   | `GET /api/queue?sort=`            | ✅      |
+| Result list (paginated) | Job cards with same layout as Home top picks   | `GET /api/queue?limit=20&offset=` | ✅      |
+| Generate resume button  | Same as Home tab                               | `POST /api/generate-resume`       | ✅      |
 
 
 ---
@@ -244,10 +244,10 @@ Each tab section maps UI components to API endpoints, with implementation status
 
 | Component                   | Function                                                   | API                                | Status     |
 | --------------------------- | ---------------------------------------------------------- | ---------------------------------- | ---------- |
-| User info card              | Name, target roles, target regions                         | Static or `GET /api/config`        | ⏳ Phase 5  |
-| **Today's collection card** | `N runs · M new JDs` (sliding 24h window)                  | `GET /api/collection-runs/summary` | ⏳ Phase 5  |
-| **Last new JD timestamp**   | "Last new JD: 23 min ago"                                  | `GET /api/collection-runs/summary` | ⏳ Phase 5  |
-| **This week summary card**  | `N runs · M new JDs` (sliding 7d window)                   | `GET /api/collection-runs/summary` | ⏳ Phase 5  |
+| User info card              | Name, target roles, target regions                         | Static or `GET /api/config`        | ✅          |
+| **Today's collection card** | `N runs · M new JDs` (sliding 24h window)                  | `GET /api/collection-runs/summary` | ✅          |
+| **Last new JD timestamp**   | "Last new JD: 23 min ago"                                  | `GET /api/collection-runs/summary` | ✅          |
+| **This week summary card**  | `N runs · M new JDs` (sliding 7d window)                   | `GET /api/collection-runs/summary` | ✅          |
 | API connection status       | Anthropic / Google Docs / Sheets / Adzuna / WorkNet status | `GET /api/config/health`           | 💤 Phase B |
 | Settings toggles            | Auto-rank / Notify threshold                               | `GET/PATCH /api/config`            | 💤 Phase B |
 | Reconnect button            | Re-trigger OAuth flow if token expired                     | UI only (manual script)            | 💤 Phase B |
@@ -315,7 +315,7 @@ Complete API surface with implementation status.
 
 | Method | Path                           | Purpose                                        | Status     |
 | ------ | ------------------------------ | ---------------------------------------------- | ---------- |
-| GET    | `/api/collection-runs/summary` | Today/Week aggregates + last new JD timestamp  | ⏳ Phase 5  |
+| GET    | `/api/collection-runs/summary` | Today/Week aggregates + last new JD timestamp  | ✅          |
 | GET    | `/api/collection-runs/latest`  | Most recent run details (per-source breakdown) | 💤 Phase B |
 
 
@@ -400,7 +400,7 @@ Completed:
 
 ---
 
-### Phase 5 — Cloud Collection & Profile Tab ⏳ PLANNED
+### Phase 5 — Cloud Collection & Profile Tab 🟡 IN PROGRESS
 
 **Goal:** Replace local SQLite collection with cloud-based GitHub Actions cron pushing to Supabase. Add Profile tab collection health monitoring. Complete Search tab.
 
@@ -409,6 +409,18 @@ Completed:
 - Email digest (deleted from scope — user feedback: low action conversion)
 - Push notifications (deferred to Phase 5.1 pending usage data)
 - Settings persistence (`/api/config` deferred to Phase B)
+
+**All code tasks completed:**
+
+- ✅ Task 1: `supabase_utils.py` — atomic UPSERT helpers for cloud collection (`scripts/collection/`)
+- ✅ Task 2: Collector dual-write flags (`--push-supabase` on collectors, `--supabase` on dedup)
+- ✅ Task 3: GitHub Actions workflows (`collect-gmail.yml`, `collect-adzuna.yml`)
+- ✅ Task 5: Profile tab UI + `GET /api/collection-runs/summary` API
+- ✅ Task 6: Search tab UI + `GET /api/queue` text search (`q`), sort, pagination
+
+**Pending setup (manual):**
+
+- ⏳ Task 4: GitHub Secrets configuration (6 secrets — see below)
 
 #### Task 1 — Supabase write layer (Python)
 
@@ -480,8 +492,8 @@ Add `--push-supabase` (collectors) and `--supabase` (dedup) CLI flags. Default b
 
 | Workflow             | Cron (UTC)                   | AEST Equivalent                                |
 | -------------------- | ---------------------------- | ---------------------------------------------- |
-| `collect-gmail.yml`  | `0 22,0,2,4,6,8,10,12 * * `* | 8am, 10am, 12pm, 2pm, 4pm, 6pm, 8pm, 10pm AEST |
-| `collect-adzuna.yml` | `0 14 * * *`                 | 12am AEST                                      |
+| `collect-gmail.yml`  | `0 22,0,2,4,6,8,10,12` * * * | 8am, 10am, 12pm, 2pm, 4pm, 6pm, 8pm, 10pm AEST |
+| `collect-adzuna.yml` | `0 14` * * *                 | 12am AEST                                      |
 
 
 **Rationale:**
@@ -526,14 +538,14 @@ jobs:
 **Required secrets (6):**
 
 
-| Secret name                 | Source / format                                                       |
-| --------------------------- | --------------------------------------------------------------------- |
-| `SUPABASE_URL`              | From Vercel env vars (`NEXT_PUBLIC_SUPABASE_URL`)                     |
-| `SUPABASE_SERVICE_ROLE_KEY` | From Supabase project settings (NOT anon key)                         |
-| `ADZUNA_APP_ID`             | From `.env` `ADZUNA_APP_ID`                                           |
-| `ADZUNA_APP_KEY`            | From `.env` `ADZUNA_APP_KEY`                                          |
-| `GMAIL_CREDENTIALS_JSON`    | Single-line JSON: `cat .credentials/gmail-credentials.json | jq -c .` |
-| `GMAIL_TOKEN_JSON`          | Single-line JSON: `cat .credentials/gmail-token.json | jq -c .`       |
+| Secret name                 | Source / format                                            |
+| --------------------------- | ---------------------------------------------------------- |
+| `SUPABASE_URL`              | From Vercel env vars (`NEXT_PUBLIC_SUPABASE_URL`)          |
+| `SUPABASE_SERVICE_ROLE_KEY` | From Supabase project settings (NOT anon key)              |
+| `ADZUNA_APP_ID`             | From `.env` `ADZUNA_APP_ID`                                |
+| `ADZUNA_APP_KEY`            | From `.env` `ADZUNA_APP_KEY`                               |
+| `GMAIL_CREDENTIALS_JSON`    | Single-line JSON: `cat .credentials/gmail-credentials.json |
+| `GMAIL_TOKEN_JSON`          | Single-line JSON: `cat .credentials/gmail-token.json       |
 
 
 **Acceptance criteria:**
@@ -771,13 +783,14 @@ Items deferred indefinitely or pending business case validation.
 ## 9. Change Log
 
 
-| Date       | Phase        | Summary                                                                                                                                                            |
-| ---------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 2026-05-02 | Phase 1-2    | Initial setup, deployment, queue APIs, Home tab                                                                                                                    |
-| 2026-05-03 | Phase 3      | Rank, generate-resume, docs/copy-base APIs + OAuth                                                                                                                 |
-| 2026-05-03 | Phase 4      | Home API wiring, Drafts tab, Pipeline tab, 4 new APIs                                                                                                              |
-| 2026-05-03 | Phase 4.1    | UX fixes: draft state on Home cards, Generate Docs → Open Resume, duplicate prevention, OAuth account switch                                                       |
-| 2026-05-04 | Phase 5 spec | Cloud collection cadence finalized (Gmail 8x/day @ 2hr, Adzuna 1x/day); email digest removed; Profile tab spec'd; Phase 5.1 (PWA push) deferred pending usage data |
-| *TBD*      | Phase 5      | Implementation: supabase_utils.py, dual-write collectors, GH Actions workflows, Profile tab, Search tab                                                            |
+| Date       | Phase          | Summary                                                                                                                                                            |
+| ---------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 2026-05-02 | Phase 1-2      | Initial setup, deployment, queue APIs, Home tab                                                                                                                    |
+| 2026-05-03 | Phase 3        | Rank, generate-resume, docs/copy-base APIs + OAuth                                                                                                                 |
+| 2026-05-03 | Phase 4        | Home API wiring, Drafts tab, Pipeline tab, 4 new APIs                                                                                                              |
+| 2026-05-03 | Phase 4.1      | UX fixes: draft state on Home cards, Generate Docs → Open Resume, duplicate prevention, OAuth account switch                                                       |
+| 2026-05-04 | Phase 5 spec   | Cloud collection cadence finalized (Gmail 8x/day @ 2hr, Adzuna 1x/day); email digest removed; Profile tab spec'd; Phase 5.1 (PWA push) deferred pending usage data |
+| 2026-05-04 | Phase 5 (web)  | Profile tab (collection monitoring cards) + Search tab (text search, filters, sort, pagination) + collection-runs/summary API                                      |
+| 2026-05-04 | Phase 5 (cron) | supabase_utils.py, dual-write collectors (--push-supabase), GH Actions workflows, config/scripts integrated into job-engine-web                                    |
 
 

@@ -1,0 +1,212 @@
+# Job Search Pipeline — Search Profiles
+# Defines role classification keywords + region targeting
+# Used by:
+#   - Adzuna/Saramin collectors (active query)
+#   - filter/dedup script (post-collection role classification)
+#
+# IMPORTANT: Ina, edit this freely. Add/remove keywords as you discover
+# what terms actually appear in JDs. Re-run filter to retest.
+
+# ============================================================
+# ROLES — keyword pools for classification
+# ============================================================
+# Lowercase comparison; partial match (substring); JD title + description.
+# 'must_include': at least one of these = role match
+# 'boost': if any present, increase confidence (used by filter)
+# 'exclude': if any present, REJECT this JD entirely (seniority filter)
+
+roles:
+  DA:
+    must_include:
+      - data analyst
+      - junior data analyst
+      - graduate data analyst
+      - associate data analyst
+      - bi analyst
+      - business analyst   # often used interchangeably with data analyst; review per JD
+      - business intelligence analyst
+      - reporting analyst
+      - insights analyst
+      - analytics analyst
+      - commercial analyst
+      - operations analyst
+      - marketing analyst   # data-focused; review per JD
+      - data analyst
+      - 데이터 분석       # 신규
+      - 데이터분석        # 띄어쓰기 없는 버전
+      - 비즈니스 분석     # business analyst 한국어
+    boost:
+      - sql
+      - power bi
+      - tableau
+      - dashboard
+      - kpi
+      - reporting
+
+  DS:
+    must_include:
+      - data scientist
+      - junior data scientist
+      - graduate data scientist
+      - associate data scientist
+      - data science graduate
+      - junior machine learning engineer
+      - junior ml engineer
+      - applied scientist
+      - analytics scientist
+      - quantitative analyst
+    boost:
+      - machine learning
+      - python
+      - scikit-learn
+      - regression
+      - classification
+      - feature engineering
+      - a/b test
+      - statistical model
+
+  DE:
+    must_include:
+      - junior sql developer
+      - sql developer
+      - junior data engineer
+      - graduate data engineer
+      - associate data engineer
+      - etl developer
+      - analytics engineer
+      - junior database developer
+      - data pipeline engineer
+    boost:
+      - sql
+      - etl
+      - elt
+      - airflow
+      - spark
+      - kafka
+      - docker
+      - data warehouse
+
+# ============================================================
+# SENIORITY EXCLUSIONS (applies to ALL roles)
+# ============================================================
+# If any of these phrases appear in title OR description (first 500 chars),
+# REJECT the JD. Defends against "Senior Data Analyst" matching DA.
+seniority_exclude:
+  # Title-level (highest priority — usually appears in title)
+  - senior
+  - sr.
+  - lead
+  - principal
+  - staff
+  - head of
+  - manager
+  - director
+  - chief
+  - vp
+  - vice president
+
+  # Experience-level (description)
+  - "5+ years"
+  - "5 years experience"
+  - "6+ years"
+  - "7+ years"
+  - "8+ years"
+  - "10+ years"
+  - "minimum 5 years"
+  - "minimum of 5 years"
+  - "phd required"
+  - "phd in"
+
+# ============================================================
+# REGIONS — location matching + visa logic reference
+# ============================================================
+# 'location_match': substring match (case-insensitive) against JD location field
+# 'visa_check': whether to apply visa-rules.yaml filter
+# 'priority': higher = appears first in queue ordering
+
+regions:
+  melbourne:
+    location_match:
+      - melbourne
+      - vic
+      - victoria
+      - "vic, australia"
+    visa_check: false   # Ina holds 485 graduate visa
+    priority: 10
+
+  korea:
+    location_match:
+      - seoul
+      - korea
+      - 서울
+      - 한국
+      - 대한민국
+    visa_check: false   # Ina is Korean national
+    priority: 8
+
+  singapore:
+    location_match:
+      - singapore
+    visa_check: true    # SG requires EP/work pass
+    priority: 6
+
+  malaysia:
+    location_match:
+      - malaysia
+      - kuala lumpur
+      - "kl,"
+      - selangor
+      - petaling jaya
+    visa_check: true    # MY requires EP
+    priority: 5
+
+# ============================================================
+# ADZUNA-specific search queries (active API queries)
+# ============================================================
+# Used by 1_collect_adzuna.py
+# Adzuna only supports single 'what' string per query — we run multiple queries
+adzuna_queries:
+  au:   # country code
+    - role: DA
+      what: "data analyst junior graduate"
+      where: "Melbourne"
+    - role: DS
+      what: "data scientist junior graduate"
+      where: "Melbourne"
+    - role: DE
+      what: "sql developer junior data engineer"
+      where: "Melbourne"
+  sg:
+    - role: DA
+      what: "data analyst junior"
+      where: "Singapore"
+    - role: DS
+      what: "data scientist junior"
+      where: "Singapore"
+
+# ============================================================
+# SARAMIN-specific search queries (Korea active API queries)
+# ============================================================
+# Saramin uses code-based filters. See:
+#   https://oapi.saramin.co.kr/guide/code-table5  (직무 코드)
+#   https://oapi.saramin.co.kr/guide/code-table2  (지역 코드)
+# job_mid_cd values to verify with current Saramin docs:
+#   84 = IT개발/데이터
+# loc_cd values:
+#   101000 = 서울
+saramin_queries:
+  - role: DA
+    keywords: "데이터 분석"
+    job_mid_cd: "84"
+    loc_cd: "101000"
+    exp_max: 1   # 신입~1년
+  - role: DS
+    keywords: "데이터 사이언스"
+    job_mid_cd: "84"
+    loc_cd: "101000"
+    exp_max: 1
+  - role: DE
+    keywords: "SQL 개발"
+    job_mid_cd: "84"
+    loc_cd: "101000"
+    exp_max: 1

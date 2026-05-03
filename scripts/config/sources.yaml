@@ -1,0 +1,67 @@
+# Job Search Pipeline — Source Configuration
+# Toggle individual sources on/off without code changes
+# Set 'enabled: false' to skip a source in the daily run
+
+sources:
+  # ----------------------------------------------------------
+  # LinkedIn Job Alerts (parsed from Gmail)
+  # ----------------------------------------------------------
+  linkedin_alerts:
+    enabled: true
+    gmail_label: "JobAlerts/LinkedIn"
+    lookback_days: 1
+    notes: |
+      Set up 6 LinkedIn alerts manually (see SETUP.md).
+      Gmail filter applies the label automatically.
+
+  # ----------------------------------------------------------
+  # Seek Job Alerts (parsed from Gmail)
+  # ----------------------------------------------------------
+  seek_alerts:
+    enabled: true
+    gmail_label: "JobAlerts/Seek"
+    lookback_days: 1
+    notes: |
+      Set up 3 Seek alerts manually (Melbourne × DA/DS/DE).
+
+  # ----------------------------------------------------------
+  # Adzuna API — official REST API, free tier
+  # ----------------------------------------------------------
+  adzuna:
+    enabled: true
+    countries:
+      - code: au
+        regions: [melbourne]
+        results_per_page: 50
+        max_days_old: 1
+      - code: sg
+        regions: [singapore]
+        results_per_page: 50
+        max_days_old: 1
+    notes: |
+      Adzuna covers AU + SG only (no MY, no KR).
+      For MY: rely on LinkedIn alerts.
+
+  # ----------------------------------------------------------
+  # Saramin OpenAPI — Korea (requires approval)
+  # ----------------------------------------------------------
+  saramin:
+    enabled: true   # set to false until access_key is approved
+    daily_limit: 500
+    results_per_call: 100
+    notes: |
+      Daily limit: 500 calls. We use 3 calls/day (1 per role).
+
+# ============================================================
+# Pipeline-wide settings
+# ============================================================
+pipeline:
+  # SHA256 dedup based on company + title + location
+  dedup_key_format: "{company}|{title}|{location}"
+  dedup_normalize: true   # lowercase, strip whitespace
+
+  # Output directory for daily queue
+  queue_dir: "job-search/data/queue"
+
+  # SQLite DB tracking seen JD hashes
+  seen_db: "job-search/data/seen_jobs.db"
