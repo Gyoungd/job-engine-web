@@ -10,25 +10,6 @@ const BASE_DOCS: Record<string, string> = {
 
 const TRIMMED_FOLDER_ID = process.env.GDRIVE_TRIMMED_FOLDER_ID ?? ''
 
-/**
-function getUserDrive() {
-  const tokenJson = process.env.GMAIL_TOKEN_JSON
-  if (!tokenJson) throw new Error('GMAIL_TOKEN_JSON not set')
-
-  const token = JSON.parse(tokenJson)
-
-  // 직접 입력 (gmail-credentials.json 값)
-  const CLIENT_ID = '806336906152-jjddo8te1i6ojiegmaaqu8op1mn4i043.apps.googleusercontent.com'
-  const CLIENT_SECRET = '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'
-
-  const oauth2 = new google.auth.OAuth2(CLIENT_ID, CLIENT_SECRET)
-  oauth2.setCredentials({
-    access_token: token.token,
-    refresh_token: token.refresh_token,
-    token_type: 'Bearer',
-  })
-*/
-
 function getUserDrive() {
   const tokenJson = process.env.GMAIL_TOKEN_JSON
   const credJson = process.env.GMAIL_CREDENTIALS_JSON
@@ -73,6 +54,7 @@ export async function POST(req: NextRequest) {
         doc_url: app.doc_url,
         doc_id: app.doc_id,
         message: 'Document already exists',
+        db_verified: true,
       })
     }
 
@@ -87,7 +69,6 @@ export async function POST(req: NextRequest) {
     const companyClean = company.replace(/[^\w\s가-힣-]/g, '').trim()
     const fileName = `Gayoung Dan_Resume_${companyClean}`
 
-    // 사용자 OAuth로 복사 → 본인 Drive 용량 사용
     const drive = getUserDrive()
 
     const copyRes = await drive.files.copy({
@@ -101,24 +82,65 @@ export async function POST(req: NextRequest) {
     const newDocId = copyRes.data.id
     const docUrl = `https://docs.google.com/document/d/${newDocId}/edit`
 
-    await supabaseAdmin
+    // Try updating all fields at once
+    const { data: updated, error: err1 } = await supabaseAdmin
       .from('applications')
-      .update({
-        doc_id: newDocId,
-        doc_url: docUrl,
-        status: 'docs_copied',
-      })
+      .update({ doc_id: newDocId, doc_url: docUrl, status: 'docs_copied' })
       .eq('id', applicationId)
+      .select('id, status, doc_url, doc_id')
+
+    if (err1) {
+      console.error('[copy-base] Update error:', JSON.stringify(err1))
+
+      // Fallback: update fields individually to find which column fails
+      const results: Record<string, string> = {}
+
+      const { error: e1 } = await supabaseAdmin.from('applications').update({ status: 'docs_copied' }).eq('id', applicationId)
+      results.status = e1 ? `FAIL: ${e1.message}` : 'OK'
+
+      const { error: e2 } = await supabaseAdmin.from('applications').update({ doc_url: docUrl }).eq('id', applicationId)
+      results.doc_url = e2 ? `FAIL: ${e2.message}` : 'OK'
+
+      const { error: e3 } = await supabaseAdmin.from('applications').update({ doc_id: newDocId }).eq('id', applicationId)
+      results.doc_id = e3 ? `FAIL: ${e3.message}` : 'OK'
+
+      console.error('[copy-base] Individual update results:', results)
+
+      return NextResponse.json({
+        doc_id: newDocId, doc_url: docUrl, file_name: fileName, role,
+        db_verified: false, db_field_results: results,
+      })
+    }
+
+    // Check if update actually matched rows
+    if (!updated || updated.length === 0) {
+      console.error('[copy-base] Update matched 0 rows for id:', applicationId)
+
+      // Fallback: try individual updates
+      await supabaseAdmin.from('applications').update({ status: 'docs_copied' }).eq('id', applicationId)
+      await supabaseAdmin.from('applications').update({ doc_url: docUrl }).eq('id', applicationId)
+      await supabaseAdmin.from('applications').update({ doc_id: newDocId }).eq('id', applicationId)
+
+      const { data: verify } = await supabaseAdmin
+        .from('applications')
+        .select('id, status, doc_url, doc_id')
+        .eq('id', applicationId)
+        .single()
+
+      return NextResponse.json({
+        doc_id: newDocId, doc_url: docUrl, file_name: fileName, role,
+        db_verified: verify?.doc_url === docUrl,
+        db_state: verify,
+      })
+    }
 
     return NextResponse.json({
-      doc_id: newDocId,
-      doc_url: docUrl,
-      file_name: fileName,
-      role,
+      doc_id: newDocId, doc_url: docUrl, file_name: fileName, role,
+      db_verified: true,
     })
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'Unknown error'
-    console.error('Copy base doc error:', msg)
+    console.error('[copy-base] Error:', msg)
     return NextResponse.json({ error: msg }, { status: 500 })
   }
 }

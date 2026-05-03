@@ -24,16 +24,41 @@ interface Job {
   queued: boolean
 }
 
+interface ApplicationJob {
+  title: string
+  company: string
+  location: string
+  url: string
+  classified_role: string
+  score: number | null
+}
+
 interface Application {
   id: string
   jd_hash: string
+  folder_path: string
   classified_role: string
   status: string
   doc_url: string | null
+  doc_id: string | null
   suitability_pct: number | null
+  resume_changes: string | null
+  notes: string | null
+  response_status: string | null
+  submitted_at: string | null
   created_at: string
-  job?: Job
+  updated_at: string
+  seen_jobs: ApplicationJob
 }
+
+interface PipelineSummary {
+  submitted: number
+  pending: number
+  response: number
+}
+
+type TabId = 'home' | 'search' | 'drafts' | 'pipeline' | 'profile'
+type GenState = 'idle' | 'loading' | 'done' | 'error'
 
 /* ─── constants ─── */
 const ROLE_COLORS: Record<string, string> = {
@@ -42,7 +67,19 @@ const ROLE_COLORS: Record<string, string> = {
   DE: '#90b4da',
 }
 
-const TAB_ITEMS = [
+const STATUS_OPTIONS = ['draft', 'docs_copied', 'submitted', 'interview', 'offer', 'rejected', 'withdrawn']
+
+const STATUS_LABELS: Record<string, { label: string; color: string; bg: string }> = {
+  draft:       { label: 'Draft',       color: '#6b7785', bg: '#f0f5fa' },
+  docs_copied: { label: 'Docs Ready',  color: '#b8860b', bg: '#fef9e7' },
+  submitted:   { label: 'Submitted',   color: '#4682bf', bg: '#e8f0fe' },
+  interview:   { label: 'Interview',   color: '#1a8b5f', bg: '#e6f7ef' },
+  offer:       { label: 'Offer',       color: '#1a8b5f', bg: '#d4edda' },
+  rejected:    { label: 'Rejected',    color: '#c0392b', bg: '#fde8e8' },
+  withdrawn:   { label: 'Withdrawn',   color: '#6b7785', bg: '#f0f0f0' },
+}
+
+const TAB_ITEMS: { id: TabId; label: string; icon: string }[] = [
   { id: 'home', label: 'Home', icon: 'home' },
   { id: 'search', label: 'Search', icon: 'search' },
   { id: 'drafts', label: 'Drafts', icon: 'drafts' },
@@ -50,7 +87,7 @@ const TAB_ITEMS = [
   { id: 'profile', label: 'Profile', icon: 'profile' },
 ]
 
-/* ─── helper ─── */
+/* ─── helpers ─── */
 function timeAgo(dateStr: string): string {
   const diff = Date.now() - new Date(dateStr).getTime()
   const hours = Math.floor(diff / (1000 * 60 * 60))
@@ -65,6 +102,11 @@ function getGreeting(): string {
   if (h < 12) return 'Good morning'
   if (h < 18) return 'Good afternoon'
   return 'Good evening'
+}
+
+function truncate(text: string, max: number): string {
+  if (text.length <= max) return text
+  return text.slice(0, max) + '…'
 }
 
 /* ─── SVG Icons ─── */
@@ -110,28 +152,96 @@ function TabIcon({ type, active }: { type: string; active: boolean }) {
   }
 }
 
+function StatusBadge({ status }: { status: string }) {
+  const s = STATUS_LABELS[status] ?? STATUS_LABELS.draft
+  return (
+    <span style={{
+      fontSize: 11,
+      fontWeight: 600,
+      padding: '3px 8px',
+      borderRadius: 6,
+      background: s.bg,
+      color: s.color,
+      whiteSpace: 'nowrap',
+    }}>
+      {s.label}
+    </span>
+  )
+}
+
+function RoleBadge({ role }: { role: string }) {
+  const r = role?.toUpperCase() ?? 'DA'
+  return (
+    <span style={{
+      fontSize: 10,
+      fontWeight: 600,
+      padding: '3px 8px',
+      borderRadius: 5,
+      letterSpacing: 0.5,
+      background: ROLE_COLORS[r] ?? '#6c9bcd',
+      color: 'white',
+    }}>
+      {r}
+    </span>
+  )
+}
+
 /* ═══════════════════════════════════════════
    MAIN COMPONENT
    ═══════════════════════════════════════════ */
 export default function Home() {
+  const [activeTab, setActiveTab] = useState<TabId>('home')
+
+  /* ─── Home state ─── */
   const [stats, setStats] = useState<Stats>({ raw: 0, new: 0, target: 0, top: 0 })
   const [jobs, setJobs] = useState<Job[]>([])
-  const [activeTab, setActiveTab] = useState('home')
-  const [generating, setGenerating] = useState<Record<string, 'idle' | 'loading' | 'done'>>({})
   const [loading, setLoading] = useState(true)
+  const [generating, setGenerating] = useState<Record<string, GenState>>({})
+  const [ranking, setRanking] = useState(false)
+  const [rankResult, setRankResult] = useState<string | null>(null)
+  const [pipeline, setPipeline] = useState<PipelineSummary>({ submitted: 0, pending: 0, response: 0 })
+  const [homeDrafts, setHomeDrafts] = useState<Application[]>([])
+  const [draftsByHash, setDraftsByHash] = useState<Record<string, Application>>({})
 
-  /* pipeline mock (Phase 4에서 /api/applications/summary로 교체) */
-  const [pipeline] = useState({ submitted: 5, pending: 3, response: 1 })
+  /* ─── Drafts state ─── */
+  const [drafts, setDrafts] = useState<Application[]>([])
+  const [draftsLoading, setDraftsLoading] = useState(false)
+  const [draftsFilter, setDraftsFilter] = useState<string>('all')
+  const [expandedDraft, setExpandedDraft] = useState<string | null>(null)
+  const [copyingDoc, setCopyingDoc] = useState<Record<string, boolean>>({})
+  const [markingApplied, setMarkingApplied] = useState<Record<string, boolean>>({})
 
-  const fetchData = useCallback(async () => {
+  /* ─── Pipeline state ─── */
+  const [pipelineApps, setPipelineApps] = useState<Application[]>([])
+  const [pipelineLoading, setPipelineLoading] = useState(false)
+  const [pipelineSort, setPipelineSort] = useState<'newest' | 'oldest' | 'score'>('newest')
+  const [pipelineStatusFilter, setPipelineStatusFilter] = useState<string>('all')
+  const [editingNotes, setEditingNotes] = useState<Record<string, string>>({})
+  const [savingField, setSavingField] = useState<Record<string, boolean>>({})
+
+  /* ─── Home tab data fetch ─── */
+  const fetchHomeData = useCallback(async () => {
     setLoading(true)
     try {
-      const [statsRes, jobsRes] = await Promise.all([
+      const [statsRes, jobsRes, summaryRes, draftsRes, allAppsRes] = await Promise.all([
         fetch('/api/queue/stats').then(r => r.json()),
-        fetch('/api/queue?limit=12').then(r => r.json()),
+        fetch('/api/queue?filter=ranked&limit=12').then(r => r.json()),
+        fetch('/api/applications/summary').then(r => r.json()),
+        fetch('/api/applications?status=draft,docs_copied&limit=3').then(r => r.json()),
+        fetch('/api/applications?limit=100').then(r => r.json()),
       ])
       setStats(statsRes)
       setJobs(jobsRes.jobs ?? [])
+      setPipeline(summaryRes)
+      setHomeDrafts(draftsRes.applications ?? [])
+
+      const hashMap: Record<string, Application> = {}
+      for (const app of (allAppsRes.applications ?? []) as Application[]) {
+        if (!hashMap[app.jd_hash] || app.created_at > hashMap[app.jd_hash].created_at) {
+          hashMap[app.jd_hash] = app
+        }
+      }
+      setDraftsByHash(hashMap)
     } catch (e) {
       console.error('Fetch failed:', e)
     } finally {
@@ -140,19 +250,223 @@ export default function Home() {
   }, [])
 
   useEffect(() => {
-    fetchData()
-  }, [fetchData])
+    fetchHomeData()
+  }, [fetchHomeData])
 
-  function handleGenerate(hash: string) {
-    if (generating[hash] === 'loading' || generating[hash] === 'done') return
-    setGenerating(prev => ({ ...prev, [hash]: 'loading' }))
-    // TODO: POST /api/generate-resume (Phase 3)
-    setTimeout(() => {
-      setGenerating(prev => ({ ...prev, [hash]: 'done' }))
-    }, 1200)
+  /* ─── Generate top 10 (Haiku ranking) ─── */
+  async function handleRankTop10() {
+    if (ranking) return
+    setRanking(true)
+    setRankResult(null)
+    try {
+      const res = await fetch('/api/rank', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'top10', limit: 10 }),
+      })
+      const data = await res.json()
+      if (res.ok) {
+        setRankResult(`Scored ${data.scored_count} jobs`)
+        await fetchHomeData()
+      } else {
+        setRankResult(data.error ?? 'Scoring failed')
+      }
+    } catch {
+      setRankResult('Network error')
+    } finally {
+      setRanking(false)
+    }
   }
 
-  /* ─── render ─── */
+  /* ─── Generate resume (Sonnet) ─── */
+  async function handleGenerate(hash: string) {
+    const existingDraft = draftsByHash[hash]
+    if (existingDraft || generating[hash] === 'loading' || generating[hash] === 'done') return
+    setGenerating(prev => ({ ...prev, [hash]: 'loading' }))
+    try {
+      const res = await fetch('/api/generate-resume', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jd_hash: hash }),
+      })
+      const data = await res.json()
+      if (res.ok) {
+        setGenerating(prev => ({ ...prev, [hash]: 'done' }))
+        fetchHomeData()
+      } else if (res.status === 409) {
+        setGenerating(prev => ({ ...prev, [hash]: 'done' }))
+      } else {
+        setGenerating(prev => ({ ...prev, [hash]: 'error' }))
+        console.error('Generate failed:', data.error)
+      }
+    } catch {
+      setGenerating(prev => ({ ...prev, [hash]: 'error' }))
+    }
+  }
+
+  /* ─── Drafts tab data fetch ─── */
+  const fetchDrafts = useCallback(async () => {
+    setDraftsLoading(true)
+    try {
+      const statusParam = draftsFilter === 'all' ? 'draft,docs_copied,submitted' : draftsFilter
+      const res = await fetch(`/api/applications?status=${statusParam}&limit=50`)
+      const data = await res.json()
+      setDrafts(data.applications ?? [])
+    } catch (e) {
+      console.error('Drafts fetch failed:', e)
+    } finally {
+      setDraftsLoading(false)
+    }
+  }, [draftsFilter])
+
+  useEffect(() => {
+    if (activeTab === 'drafts') fetchDrafts()
+  }, [activeTab, fetchDrafts])
+
+  /* ─── Generate Docs ─── */
+  async function handleCopyDocs(appId: string) {
+    if (copyingDoc[appId]) return
+    setCopyingDoc(prev => ({ ...prev, [appId]: true }))
+    try {
+      const res = await fetch('/api/docs/copy-base', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ application_id: appId }),
+      })
+      const data = await res.json()
+      console.log('[Generate Docs] API response:', data)
+
+      if (data.doc_url) {
+        if (data.db_error) {
+          console.warn('[Generate Docs] DB update issue:', data.db_error, data.db_state)
+        }
+        setDrafts(prev => prev.map(d =>
+          d.id === appId
+            ? { ...d, status: 'docs_copied', doc_url: data.doc_url, doc_id: data.doc_id }
+            : d
+        ))
+        setHomeDrafts(prev => prev.map(d =>
+          d.id === appId
+            ? { ...d, status: 'docs_copied', doc_url: data.doc_url, doc_id: data.doc_id }
+            : d
+        ))
+        setDraftsByHash(prev => {
+          const updated = { ...prev }
+          for (const [hash, draft] of Object.entries(updated)) {
+            if (draft.id === appId) {
+              updated[hash] = { ...draft, status: 'docs_copied', doc_url: data.doc_url, doc_id: data.doc_id }
+            }
+          }
+          return updated
+        })
+        window.open(data.doc_url, '_blank')
+      }
+    } catch (e) {
+      console.error('Copy docs failed:', e)
+    } finally {
+      setCopyingDoc(prev => ({ ...prev, [appId]: false }))
+    }
+  }
+
+  /* ─── Mark Applied ─── */
+  async function handleMarkApplied(appId: string) {
+    if (markingApplied[appId]) return
+    setMarkingApplied(prev => ({ ...prev, [appId]: true }))
+    try {
+      const res = await fetch('/api/applications/mark-applied', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ application_id: appId }),
+      })
+      if (res.ok) {
+        setDrafts(prev => prev.map(d =>
+          d.id === appId ? { ...d, status: 'submitted' } : d
+        ))
+        setHomeDrafts(prev => prev.filter(d => d.id !== appId))
+        fetchHomeData()
+      }
+    } catch (e) {
+      console.error('Mark applied failed:', e)
+    } finally {
+      setMarkingApplied(prev => ({ ...prev, [appId]: false }))
+    }
+  }
+
+  /* ─── Pipeline tab data fetch ─── */
+  const fetchPipeline = useCallback(async () => {
+    setPipelineLoading(true)
+    try {
+      const statusParam = pipelineStatusFilter === 'all' ? '' : `&status=${pipelineStatusFilter}`
+      const res = await fetch(`/api/applications?limit=100${statusParam}`)
+      const data = await res.json()
+      let apps: Application[] = data.applications ?? []
+
+      if (pipelineSort === 'oldest') {
+        apps.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+      } else if (pipelineSort === 'score') {
+        apps.sort((a, b) => (b.suitability_pct ?? 0) - (a.suitability_pct ?? 0))
+      }
+
+      setPipelineApps(apps)
+    } catch (e) {
+      console.error('Pipeline fetch failed:', e)
+    } finally {
+      setPipelineLoading(false)
+    }
+  }, [pipelineSort, pipelineStatusFilter])
+
+  useEffect(() => {
+    if (activeTab === 'pipeline') fetchPipeline()
+  }, [activeTab, fetchPipeline])
+
+  /* ─── Pipeline: update status ─── */
+  async function handleStatusChange(appId: string, newStatus: string) {
+    setSavingField(prev => ({ ...prev, [appId]: true }))
+    try {
+      const res = await fetch(`/api/applications/${appId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: newStatus }),
+      })
+      if (res.ok) {
+        setPipelineApps(prev => prev.map(a => a.id === appId ? { ...a, status: newStatus } : a))
+      }
+    } catch (e) {
+      console.error('Status update failed:', e)
+    } finally {
+      setSavingField(prev => ({ ...prev, [appId]: false }))
+    }
+  }
+
+  /* ─── Pipeline: save notes ─── */
+  async function handleNoteSave(appId: string) {
+    const notes = editingNotes[appId]
+    if (notes === undefined) return
+    setSavingField(prev => ({ ...prev, [`note-${appId}`]: true }))
+    try {
+      const res = await fetch(`/api/applications/${appId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ notes }),
+      })
+      if (res.ok) {
+        setPipelineApps(prev => prev.map(a => a.id === appId ? { ...a, notes } : a))
+        setEditingNotes(prev => {
+          const next = { ...prev }
+          delete next[appId]
+          return next
+        })
+      }
+    } catch (e) {
+      console.error('Note save failed:', e)
+    } finally {
+      setSavingField(prev => ({ ...prev, [`note-${appId}`]: false }))
+    }
+  }
+
+  /* ═══════════════════════════════════════════
+     RENDER
+     ═══════════════════════════════════════════ */
   return (
     <div style={{ display: 'flex', justifyContent: 'center', padding: '0', minHeight: '100vh', background: '#f8fafb' }}>
       <div style={{
@@ -166,11 +480,7 @@ export default function Home() {
       }}>
 
         {/* ─── Scroll Area ─── */}
-        <div style={{
-          flex: 1,
-          overflowY: 'auto',
-          paddingBottom: 80,
-        }}>
+        <div style={{ flex: 1, overflowY: 'auto', paddingBottom: 80 }}>
 
           {/* ─── Header ─── */}
           <div style={{
@@ -181,427 +491,711 @@ export default function Home() {
           }}>
             <div>
               <h1 style={{ fontSize: 24, fontWeight: 600, color: '#1a2332', letterSpacing: -0.5 }}>
-                Job Dashboard
+                {activeTab === 'home' ? 'Job Dashboard' :
+                 activeTab === 'drafts' ? 'Resume Drafts' :
+                 activeTab === 'pipeline' ? 'Pipeline' :
+                 activeTab === 'search' ? 'Search Jobs' :
+                 'Profile'}
               </h1>
               <p style={{ fontSize: 13, color: '#6b7785', marginTop: 2 }}>
-                {getGreeting()}, Ina ☀️
+                {getGreeting()}, Ina
               </p>
             </div>
             <div style={{
-              width: 38,
-              height: 38,
-              borderRadius: '50%',
+              width: 38, height: 38, borderRadius: '50%',
               background: 'linear-gradient(135deg, #4682bf, #6c9bcd)',
-              color: 'white',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontWeight: 600,
-              fontSize: 14,
+              color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontWeight: 600, fontSize: 14,
               boxShadow: '0 2px 8px rgba(70, 130, 191, 0.3)',
             }}>
               I
             </div>
           </div>
 
-          {/* ─── Stats Grid ─── */}
-          <div style={{ padding: '0 20px' }}>
-            <div style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(4, 1fr)',
-              gap: 8,
-              margin: '8px 0 16px',
-            }}>
-              {[
-                { num: stats.raw, label: 'Raw' },
-                { num: stats.new, label: 'New' },
-                { num: stats.target, label: 'Target' },
-                { num: stats.top, label: 'Top' },
-              ].map((s) => (
-                <div
-                  key={s.label}
-                  style={{
-                    background: 'white',
-                    borderRadius: 14,
-                    padding: '14px 6px',
-                    textAlign: 'center',
-                    border: '1px solid #e8eef5',
-                    transition: 'all 0.2s',
-                    cursor: 'default',
-                  }}
-                >
-                  <div style={{
-                    fontSize: 24,
-                    fontWeight: 700,
-                    color: '#1e3a5f',
-                    lineHeight: 1,
-                    fontVariantNumeric: 'tabular-nums',
-                  }}>
-                    {loading ? '–' : s.num}
-                  </div>
-                  <div style={{
-                    fontSize: 9.5,
-                    color: '#6b7785',
-                    marginTop: 6,
-                    textTransform: 'uppercase',
-                    letterSpacing: 0.5,
-                    fontWeight: 500,
-                  }}>
-                    {s.label}
-                  </div>
+          {/* ═══ HOME TAB ═══ */}
+          {activeTab === 'home' && (
+            <>
+              {/* Stats Grid */}
+              <div style={{ padding: '0 20px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, margin: '8px 0 16px' }}>
+                  {[
+                    { num: stats.raw, label: 'Raw' },
+                    { num: stats.new, label: 'New' },
+                    { num: stats.target, label: 'Target' },
+                    { num: stats.top, label: 'Top' },
+                  ].map((s) => (
+                    <div key={s.label} style={{
+                      background: 'white', borderRadius: 14, padding: '14px 6px',
+                      textAlign: 'center', border: '1px solid #e8eef5',
+                    }}>
+                      <div style={{ fontSize: 24, fontWeight: 700, color: '#1e3a5f', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>
+                        {loading ? '–' : s.num}
+                      </div>
+                      <div style={{ fontSize: 9.5, color: '#6b7785', marginTop: 6, textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 500 }}>
+                        {s.label}
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
 
-            {/* ─── Action Buttons ─── */}
-            <div style={{ display: 'flex', gap: 10, marginBottom: 24 }}>
-              <button
-                onClick={fetchData}
-                style={{
-                  flex: 1,
-                  background: 'white',
-                  color: '#4682bf',
-                  border: '1px solid #b4cde7',
-                  padding: 14,
-                  borderRadius: 12,
-                  fontSize: 14,
-                  fontWeight: 500,
-                  cursor: 'pointer',
-                  boxShadow: '0 2px 8px rgba(70,130,191,0.15)',
-                }}
-              >
-                Refresh queue
-              </button>
-              <button
-                style={{
-                  flex: 1,
-                  background: '#4682bf',
-                  color: 'white',
-                  border: 'none',
-                  padding: 14,
-                  borderRadius: 12,
-                  fontSize: 14,
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                  boxShadow: '0 2px 8px rgba(70,130,191,0.3)',
-                }}
-              >
-                ✨ Generate top 10
-              </button>
-            </div>
-          </div>
-
-          {/* ─── Top Picks ─── */}
-          <div style={{ padding: '0 20px 20px' }}>
-            <div style={{
-              fontSize: 17,
-              fontWeight: 600,
-              color: '#1a2332',
-              margin: '8px 0 12px',
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              letterSpacing: -0.2,
-            }}>
-              <span>Top picks</span>
-              <span style={{
-                fontSize: 12,
-                color: '#6b7785',
-                fontWeight: 400,
-                background: '#f0f5fa',
-                padding: '3px 10px',
-                borderRadius: 10,
-              }}>
-                {jobs.length} listed
-              </span>
-            </div>
-
-            {loading ? (
-              <div style={{
-                textAlign: 'center',
-                padding: 40,
-                color: '#6b7785',
-                fontSize: 13,
-              }}>
-                Loading jobs...
-              </div>
-            ) : jobs.length === 0 ? (
-              <div style={{
-                textAlign: 'center',
-                padding: 40,
-                color: '#6b7785',
-                fontSize: 13,
-              }}>
-                No jobs in queue yet.
-              </div>
-            ) : (
-              jobs.map((job) => {
-                const genState = generating[job.hash] ?? 'idle'
-                const role = job.classified_role?.toUpperCase() ?? 'DA'
-                const roleColor = ROLE_COLORS[role] ?? '#6c9bcd'
-                const isActive = job.queued || (Date.now() - new Date(job.first_seen).getTime()) < 7 * 24 * 60 * 60 * 1000
-
-                return (
-                  <div
-                    key={job.hash}
+                {/* Action Buttons */}
+                <div style={{ display: 'flex', gap: 10, marginBottom: 24 }}>
+                  <button
+                    onClick={fetchHomeData}
                     style={{
-                      background: 'white',
-                      borderRadius: 16,
-                      padding: 14,
-                      marginBottom: 10,
-                      border: '1px solid #e8eef5',
-                      transition: 'all 0.2s',
+                      flex: 1, background: 'white', color: '#4682bf',
+                      border: '1px solid #b4cde7', padding: 14, borderRadius: 12,
+                      fontSize: 14, fontWeight: 500, cursor: 'pointer',
+                      boxShadow: '0 2px 8px rgba(70,130,191,0.15)',
                     }}
                   >
-                    {/* header */}
-                    <div style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'flex-start',
-                      marginBottom: 10,
-                    }}>
-                      <span style={{
-                        background: '#d9e6f3',
-                        color: '#1a4a7c',
-                        fontSize: 11,
-                        fontWeight: 600,
-                        padding: '4px 9px',
-                        borderRadius: 6,
-                        fontVariantNumeric: 'tabular-nums',
-                      }}>
-                        {job.score != null ? `${job.score} · fit` : 'Unscored'}
-                      </span>
-                      <span style={{
-                        fontSize: 10,
-                        fontWeight: 600,
-                        padding: '3px 8px',
-                        borderRadius: 5,
-                        letterSpacing: 0.5,
-                        background: roleColor,
-                        color: 'white',
-                      }}>
-                        {role}
-                      </span>
-                    </div>
-
-                    {/* title + company */}
-                    <div style={{
-                      fontSize: 15,
-                      fontWeight: 600,
-                      color: '#1a2332',
-                      lineHeight: 1.3,
-                      marginBottom: 4,
-                    }}>
-                      {job.title}
-                    </div>
-                    <div style={{
-                      fontSize: 13,
-                      color: '#4682bf',
-                      fontWeight: 500,
-                      marginBottom: 6,
-                    }}>
-                      {job.company ?? 'Company not listed'}
-                    </div>
-
-                    {/* meta */}
-                    <div style={{
-                      display: 'flex',
-                      gap: 8,
-                      fontSize: 11.5,
-                      color: '#6b7785',
-                      marginBottom: 12,
-                      alignItems: 'center',
-                      flexWrap: 'wrap',
-                    }}>
-                      <span>📍 {job.location ?? 'Location TBC'}</span>
-                      <span style={{
-                        width: 3,
-                        height: 3,
-                        background: '#b4cde7',
-                        borderRadius: '50%',
-                        display: 'inline-block',
-                      }} />
-                      {isActive ? (
-                        <span style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: 4,
-                          color: '#1a8b5f',
-                          fontWeight: 500,
-                        }}>
-                          <span style={{
-                            width: 6,
-                            height: 6,
-                            background: '#1a8b5f',
-                            borderRadius: '50%',
-                            boxShadow: '0 0 0 2px rgba(26,139,95,0.2)',
-                            display: 'inline-block',
-                          }} />
-                          Active
-                        </span>
-                      ) : (
-                        <span>{timeAgo(job.first_seen)}</span>
-                      )}
-                    </div>
-
-                    {/* actions */}
-                    <div style={{
-                      display: 'flex',
-                      gap: 8,
-                      borderTop: '1px solid #f0f4f8',
-                      paddingTop: 10,
-                    }}>
-                      <a
-                        href={job.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        style={{
-                          flex: 1,
-                          padding: 9,
-                          borderRadius: 8,
-                          fontSize: 12,
-                          fontWeight: 600,
-                          border: 'none',
-                          cursor: 'pointer',
-                          textAlign: 'center',
-                          background: '#f0f5fa',
-                          color: '#4682bf',
-                          textDecoration: 'none',
-                          display: 'block',
-                        }}
-                      >
-                        Preview JD
-                      </a>
-                      <button
-                        onClick={() => handleGenerate(job.hash)}
-                        disabled={genState !== 'idle'}
-                        style={{
-                          flex: 1,
-                          padding: 9,
-                          borderRadius: 8,
-                          fontSize: 12,
-                          fontWeight: 600,
-                          border: 'none',
-                          cursor: genState === 'idle' ? 'pointer' : 'default',
-                          textAlign: 'center',
-                          background: genState === 'done' ? '#1e3a5f' : '#b4cde7',
-                          color: genState === 'done' ? 'white' : '#4682bf',
-                          opacity: genState === 'loading' ? 0.7 : 1,
-                          transition: 'background 0.18s, color 0.18s',
-                        }}
-                      >
-                        {genState === 'loading'
-                          ? 'Generating...'
-                          : genState === 'done'
-                          ? '✓ Resume Generated'
-                          : 'Generate resume'}
-                      </button>
-                    </div>
+                    Refresh queue
+                  </button>
+                  <button
+                    onClick={handleRankTop10}
+                    disabled={ranking}
+                    style={{
+                      flex: 1, background: ranking ? '#6c9bcd' : '#4682bf', color: 'white',
+                      border: 'none', padding: 14, borderRadius: 12,
+                      fontSize: 14, fontWeight: 600, cursor: ranking ? 'default' : 'pointer',
+                      boxShadow: '0 2px 8px rgba(70,130,191,0.3)',
+                      opacity: ranking ? 0.8 : 1,
+                    }}
+                  >
+                    {ranking ? 'Scoring...' : '✨ Generate top 10'}
+                  </button>
+                </div>
+                {rankResult && (
+                  <div style={{
+                    fontSize: 12, color: '#4682bf', textAlign: 'center',
+                    marginTop: -16, marginBottom: 16, fontWeight: 500,
+                  }}>
+                    {rankResult}
                   </div>
-                )
-              })
-            )}
-          </div>
-
-          {/* ─── Drafts Ready (mock until /api/applications) ─── */}
-          <div style={{ padding: '0 20px 20px' }}>
-            <div style={{
-              fontSize: 17,
-              fontWeight: 600,
-              color: '#1a2332',
-              margin: '8px 0 12px',
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              letterSpacing: -0.2,
-            }}>
-              <span>Drafts ready</span>
-              <span style={{
-                fontSize: 12,
-                color: '#6b7785',
-                fontWeight: 400,
-                background: '#f0f5fa',
-                padding: '3px 10px',
-                borderRadius: 10,
-              }}>
-                0 awaiting
-              </span>
-            </div>
-
-            <div style={{
-              background: 'white',
-              borderRadius: 16,
-              padding: 24,
-              border: '1px solid #e8eef5',
-              borderLeft: '3px solid #6c9bcd',
-              textAlign: 'center',
-              color: '#6b7785',
-              fontSize: 13,
-            }}>
-              No drafts yet. Generate a resume from Top picks above.
-            </div>
-          </div>
-
-          {/* ─── Pipeline Card ─── */}
-          <div style={{ padding: '0 20px 20px' }}>
-            <div style={{
-              background: 'linear-gradient(135deg, #4682bf 0%, #6c9bcd 100%)',
-              borderRadius: 16,
-              padding: 18,
-              color: 'white',
-              boxShadow: '0 4px 16px rgba(70,130,191,0.2)',
-            }}>
-              <div style={{ fontSize: 13, opacity: 0.9, fontWeight: 500 }}>
-                Application pipeline
+                )}
               </div>
-              <div style={{ display: 'flex', gap: 24, marginTop: 14 }}>
+
+              {/* Top Picks */}
+              <div style={{ padding: '0 20px 20px' }}>
+                <div style={{
+                  fontSize: 17, fontWeight: 600, color: '#1a2332', margin: '8px 0 12px',
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center', letterSpacing: -0.2,
+                }}>
+                  <span>Top picks</span>
+                  <span style={{ fontSize: 12, color: '#6b7785', fontWeight: 400, background: '#f0f5fa', padding: '3px 10px', borderRadius: 10 }}>
+                    {jobs.length} listed
+                  </span>
+                </div>
+
+                {loading ? (
+                  <div style={{ textAlign: 'center', padding: 40, color: '#6b7785', fontSize: 13 }}>Loading jobs...</div>
+                ) : jobs.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: 40, color: '#6b7785', fontSize: 13 }}>No jobs in queue yet.</div>
+                ) : (
+                  jobs.map((job) => {
+                    const existingDraft = draftsByHash[job.hash]
+                    const hasDraft = !!existingDraft
+                    const genState = hasDraft ? 'done' as GenState : (generating[job.hash] ?? 'idle')
+                    const role = job.classified_role?.toUpperCase() ?? 'DA'
+                    const roleColor = ROLE_COLORS[role] ?? '#6c9bcd'
+                    const isActive = job.queued || (Date.now() - new Date(job.first_seen).getTime()) < 7 * 24 * 60 * 60 * 1000
+                    const draftStatus = existingDraft?.status
+
+                    return (
+                      <div key={job.hash} style={{
+                        background: hasDraft ? '#f8fbff' : 'white', borderRadius: 16, padding: 14,
+                        marginBottom: 10, border: `1px solid ${hasDraft ? '#b4cde7' : '#e8eef5'}`,
+                      }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
+                          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                            <span style={{
+                              background: '#d9e6f3', color: '#1a4a7c', fontSize: 11,
+                              fontWeight: 600, padding: '4px 9px', borderRadius: 6, fontVariantNumeric: 'tabular-nums',
+                            }}>
+                              {job.score != null ? `${job.score} · fit` : 'Unscored'}
+                            </span>
+                            {hasDraft && (
+                              <span style={{
+                                background: draftStatus === 'submitted' ? '#e6f7ef' : '#e8f0fe',
+                                color: draftStatus === 'submitted' ? '#1a8b5f' : '#4682bf',
+                                fontSize: 10, fontWeight: 600, padding: '3px 8px', borderRadius: 6,
+                              }}>
+                                {draftStatus === 'submitted' ? '✓ Applied'
+                                  : draftStatus === 'docs_copied' ? '✓ Docs ready'
+                                  : '✓ Draft ready'}
+                              </span>
+                            )}
+                          </div>
+                          <span style={{
+                            fontSize: 10, fontWeight: 600, padding: '3px 8px', borderRadius: 5,
+                            letterSpacing: 0.5, background: roleColor, color: 'white',
+                          }}>
+                            {role}
+                          </span>
+                        </div>
+
+                        <div style={{ fontSize: 15, fontWeight: 600, color: '#1a2332', lineHeight: 1.3, marginBottom: 4 }}>
+                          {job.title}
+                        </div>
+                        <div style={{ fontSize: 13, color: '#4682bf', fontWeight: 500, marginBottom: 6 }}>
+                          {job.company ?? 'Company not listed'}
+                        </div>
+
+                        <div style={{ display: 'flex', gap: 8, fontSize: 11.5, color: '#6b7785', marginBottom: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+                          <span>{job.location ?? 'Location TBC'}</span>
+                          <span style={{ width: 3, height: 3, background: '#b4cde7', borderRadius: '50%', display: 'inline-block' }} />
+                          {isActive ? (
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: '#1a8b5f', fontWeight: 500 }}>
+                              <span style={{ width: 6, height: 6, background: '#1a8b5f', borderRadius: '50%', boxShadow: '0 0 0 2px rgba(26,139,95,0.2)', display: 'inline-block' }} />
+                              Active
+                            </span>
+                          ) : (
+                            <span>{timeAgo(job.first_seen)}</span>
+                          )}
+                        </div>
+
+                        <div style={{ display: 'flex', gap: 8, borderTop: '1px solid #f0f4f8', paddingTop: 10 }}>
+                          <a href={job.url} target="_blank" rel="noopener noreferrer" style={{
+                            flex: 1, padding: 9, borderRadius: 8, fontSize: 12, fontWeight: 600,
+                            border: 'none', cursor: 'pointer', textAlign: 'center',
+                            background: '#f0f5fa', color: '#4682bf', textDecoration: 'none', display: 'block',
+                          }}>
+                            Preview JD
+                          </a>
+                          {hasDraft ? (
+                            <button
+                              onClick={() => setActiveTab('drafts')}
+                              style={{
+                                flex: 1, padding: 9, borderRadius: 8, fontSize: 12, fontWeight: 600,
+                                border: 'none', cursor: 'pointer', textAlign: 'center',
+                                background: '#1e3a5f', color: 'white',
+                              }}
+                            >
+                              View Draft →
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => handleGenerate(job.hash)}
+                              disabled={genState !== 'idle'}
+                              style={{
+                                flex: 1, padding: 9, borderRadius: 8, fontSize: 12, fontWeight: 600,
+                                border: 'none', textAlign: 'center',
+                                cursor: genState === 'idle' ? 'pointer' : 'default',
+                                background: genState === 'done' ? '#1e3a5f' : genState === 'error' ? '#c0392b' : '#b4cde7',
+                                color: genState === 'done' || genState === 'error' ? 'white' : '#4682bf',
+                                opacity: genState === 'loading' ? 0.7 : 1,
+                                transition: 'background 0.18s, color 0.18s',
+                              }}
+                            >
+                              {genState === 'loading' ? 'Generating...'
+                                : genState === 'done' ? '✓ Resume Generated'
+                                : genState === 'error' ? '✗ Failed'
+                                : 'Generate resume'}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })
+                )}
+              </div>
+
+              {/* Drafts Ready (live from API) */}
+              <div style={{ padding: '0 20px 20px' }}>
+                <div style={{
+                  fontSize: 17, fontWeight: 600, color: '#1a2332', margin: '8px 0 12px',
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center', letterSpacing: -0.2,
+                }}>
+                  <span>Drafts ready</span>
+                  <span style={{ fontSize: 12, color: '#6b7785', fontWeight: 400, background: '#f0f5fa', padding: '3px 10px', borderRadius: 10 }}>
+                    {homeDrafts.length} awaiting
+                  </span>
+                </div>
+
+                {homeDrafts.length === 0 ? (
+                  <div style={{
+                    background: 'white', borderRadius: 16, padding: 24,
+                    border: '1px solid #e8eef5', borderLeft: '3px solid #6c9bcd',
+                    textAlign: 'center', color: '#6b7785', fontSize: 13,
+                  }}>
+                    No drafts yet. Generate a resume from Top picks above.
+                  </div>
+                ) : (
+                  homeDrafts.map(draft => (
+                    <div key={draft.id} style={{
+                      background: 'white', borderRadius: 16, padding: 14,
+                      marginBottom: 10, border: '1px solid #e8eef5',
+                      borderLeft: `3px solid ${draft.status === 'docs_copied' ? '#b8860b' : '#6c9bcd'}`,
+                    }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                        <div style={{ fontSize: 14, fontWeight: 600, color: '#1a2332' }}>
+                          {draft.seen_jobs?.company ?? 'Unknown'}
+                        </div>
+                        <StatusBadge status={draft.status} />
+                      </div>
+                      <div style={{ fontSize: 12, color: '#6b7785', marginBottom: 8 }}>
+                        {draft.seen_jobs?.title ?? draft.folder_path} · {timeAgo(draft.created_at)}
+                      </div>
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <button
+                          onClick={() => setActiveTab('drafts')}
+                          style={{
+                            flex: 1, padding: 8, borderRadius: 8, fontSize: 11, fontWeight: 600,
+                            border: 'none', cursor: 'pointer', background: '#f0f5fa', color: '#4682bf',
+                          }}
+                        >
+                          View details
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              {/* Pipeline Card (live from API) */}
+              <div style={{ padding: '0 20px 20px' }}>
+                <div style={{
+                  background: 'linear-gradient(135deg, #4682bf 0%, #6c9bcd 100%)',
+                  borderRadius: 16, padding: 18, color: 'white',
+                  boxShadow: '0 4px 16px rgba(70,130,191,0.2)',
+                }}>
+                  <div style={{ fontSize: 13, opacity: 0.9, fontWeight: 500 }}>Application pipeline</div>
+                  <div style={{ display: 'flex', gap: 24, marginTop: 14 }}>
+                    {[
+                      { num: pipeline.submitted, label: 'Submitted' },
+                      { num: pipeline.pending, label: 'Pending' },
+                      { num: pipeline.response, label: 'Response' },
+                    ].map((p) => (
+                      <div key={p.label}>
+                        <div style={{ fontSize: 22, fontWeight: 600, lineHeight: 1 }}>{p.num}</div>
+                        <div style={{ fontSize: 11, opacity: 0.85, marginTop: 4 }}>{p.label}</div>
+                      </div>
+                    ))}
+                  </div>
+                  <div
+                    onClick={() => setActiveTab('pipeline')}
+                    style={{
+                      marginTop: 14, fontSize: 13, fontWeight: 500,
+                      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                      borderTop: '1px solid rgba(255,255,255,0.2)', paddingTop: 12, cursor: 'pointer',
+                    }}
+                  >
+                    <span>View full pipeline</span>
+                    <span>→</span>
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* ═══ DRAFTS TAB ═══ */}
+          {activeTab === 'drafts' && (
+            <div style={{ padding: '0 20px 20px' }}>
+              {/* Filter bar */}
+              <div style={{ display: 'flex', gap: 8, margin: '12px 0 16px', flexWrap: 'wrap' }}>
+                {['all', 'draft', 'docs_copied', 'submitted'].map(f => (
+                  <button
+                    key={f}
+                    onClick={() => setDraftsFilter(f)}
+                    style={{
+                      padding: '7px 14px', borderRadius: 20, fontSize: 12, fontWeight: 500,
+                      border: 'none', cursor: 'pointer',
+                      background: draftsFilter === f ? '#4682bf' : 'white',
+                      color: draftsFilter === f ? 'white' : '#4682bf',
+                      boxShadow: draftsFilter === f ? 'none' : '0 1px 3px rgba(0,0,0,0.08)',
+                    }}
+                  >
+                    {f === 'all' ? 'All' : (STATUS_LABELS[f]?.label ?? f)}
+                  </button>
+                ))}
+              </div>
+
+              {draftsLoading ? (
+                <div style={{ textAlign: 'center', padding: 40, color: '#6b7785', fontSize: 13 }}>Loading drafts...</div>
+              ) : drafts.length === 0 ? (
+                <div style={{
+                  background: 'white', borderRadius: 16, padding: 32,
+                  border: '1px solid #e8eef5', textAlign: 'center', color: '#6b7785', fontSize: 13,
+                }}>
+                  No drafts found. Generate resumes from the Home tab.
+                </div>
+              ) : (
+                drafts.map(draft => {
+                  const isExpanded = expandedDraft === draft.id
+                  const job = draft.seen_jobs
+                  return (
+                    <div key={draft.id} style={{
+                      background: 'white', borderRadius: 16, padding: 16,
+                      marginBottom: 12, border: '1px solid #e8eef5',
+                      borderLeft: `3px solid ${STATUS_LABELS[draft.status]?.color ?? '#6c9bcd'}`,
+                    }}>
+                      {/* Card header */}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 15, fontWeight: 600, color: '#1a2332', lineHeight: 1.3, marginBottom: 4 }}>
+                            {job?.title ?? 'Untitled'}
+                          </div>
+                          <div style={{ fontSize: 13, color: '#4682bf', fontWeight: 500 }}>
+                            {job?.company ?? 'Unknown company'}
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexShrink: 0 }}>
+                          <RoleBadge role={draft.classified_role} />
+                          <StatusBadge status={draft.status} />
+                        </div>
+                      </div>
+
+                      {/* Meta row */}
+                      <div style={{ display: 'flex', gap: 12, fontSize: 11.5, color: '#6b7785', marginBottom: 12, flexWrap: 'wrap' }}>
+                        {draft.suitability_pct && (
+                          <span style={{ fontWeight: 600, color: draft.suitability_pct >= 80 ? '#1a8b5f' : '#b8860b' }}>
+                            {draft.suitability_pct}% fit
+                          </span>
+                        )}
+                        <span>{timeAgo(draft.created_at)}</span>
+                        {draft.status === 'draft' && <span style={{ color: '#1a8b5f' }}>✓ Ready</span>}
+                        {draft.status === 'docs_copied' && <span style={{ color: '#b8860b' }}>⏳ Awaiting submission</span>}
+                      </div>
+
+                      {/* Resume changes preview */}
+                      {draft.resume_changes && (
+                        <div
+                          onClick={() => setExpandedDraft(isExpanded ? null : draft.id)}
+                          style={{
+                            background: '#f8fafb', borderRadius: 10, padding: 12,
+                            marginBottom: 12, cursor: 'pointer', border: '1px solid #e8eef5',
+                          }}
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: isExpanded ? 8 : 0 }}>
+                            <span style={{ fontSize: 11, fontWeight: 600, color: '#4682bf', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                              Resume Changes
+                            </span>
+                            <span style={{ fontSize: 11, color: '#6b7785' }}>
+                              {isExpanded ? '▲ Collapse' : '▼ Expand'}
+                            </span>
+                          </div>
+                          {isExpanded ? (
+                            <pre style={{
+                              fontSize: 11.5, color: '#1a2332', lineHeight: 1.5,
+                              whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+                              maxHeight: 400, overflowY: 'auto', margin: 0,
+                              fontFamily: 'ui-monospace, "SF Mono", Menlo, monospace',
+                            }}>
+                              {draft.resume_changes}
+                            </pre>
+                          ) : (
+                            <div style={{ fontSize: 12, color: '#6b7785', lineHeight: 1.4, marginTop: 4 }}>
+                              {truncate(draft.resume_changes, 120)}
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Action buttons */}
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        {job?.url && (
+                          <a href={job.url} target="_blank" rel="noopener noreferrer" style={{
+                            flex: 1, padding: 9, borderRadius: 8, fontSize: 12, fontWeight: 600,
+                            border: 'none', textAlign: 'center', background: '#f0f5fa', color: '#4682bf',
+                            textDecoration: 'none', display: 'block',
+                          }}>
+                            View JD
+                          </a>
+                        )}
+
+                        {draft.status === 'draft' && !draft.doc_url && (
+                          <button
+                            onClick={() => handleCopyDocs(draft.id)}
+                            disabled={!!copyingDoc[draft.id]}
+                            style={{
+                              flex: 1, padding: 9, borderRadius: 8, fontSize: 12, fontWeight: 600,
+                              border: 'none', cursor: copyingDoc[draft.id] ? 'default' : 'pointer',
+                              background: '#b4cde7', color: '#4682bf',
+                              opacity: copyingDoc[draft.id] ? 0.7 : 1,
+                            }}
+                          >
+                            {copyingDoc[draft.id] ? 'Generating...' : 'Generate Docs'}
+                          </button>
+                        )}
+
+                        {draft.doc_url && (
+                          <a href={draft.doc_url} target="_blank" rel="noopener noreferrer" style={{
+                            flex: 1, padding: 9, borderRadius: 8, fontSize: 12, fontWeight: 600,
+                            border: 'none', textAlign: 'center',
+                            background: draft.status === 'submitted' ? '#f0f5fa' : '#1e3a5f',
+                            color: draft.status === 'submitted' ? '#4682bf' : 'white',
+                            textDecoration: 'none', display: 'block',
+                          }}>
+                            Open Resume
+                          </a>
+                        )}
+
+                        {(draft.status === 'draft' || draft.status === 'docs_copied') && (
+                          <button
+                            onClick={() => handleMarkApplied(draft.id)}
+                            disabled={!!markingApplied[draft.id]}
+                            style={{
+                              flex: 1, padding: 9, borderRadius: 8, fontSize: 12, fontWeight: 600,
+                              border: 'none', cursor: markingApplied[draft.id] ? 'default' : 'pointer',
+                              background: '#1e3a5f', color: 'white',
+                              opacity: markingApplied[draft.id] ? 0.7 : 1,
+                            }}
+                          >
+                            {markingApplied[draft.id] ? 'Submitting...' : 'Mark Applied'}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })
+              )}
+            </div>
+          )}
+
+          {/* ═══ PIPELINE TAB ═══ */}
+          {activeTab === 'pipeline' && (
+            <div style={{ padding: '0 20px 20px' }}>
+              {/* Summary row */}
+              <div style={{
+                display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, margin: '12px 0 16px',
+              }}>
                 {[
-                  { num: pipeline.submitted, label: 'Submitted' },
-                  { num: pipeline.pending, label: 'Pending' },
-                  { num: pipeline.response, label: 'Response' },
-                ].map((p) => (
-                  <div key={p.label}>
-                    <div style={{ fontSize: 22, fontWeight: 600, lineHeight: 1 }}>
-                      {p.num}
-                    </div>
-                    <div style={{ fontSize: 11, opacity: 0.85, marginTop: 4 }}>
-                      {p.label}
-                    </div>
+                  { num: pipeline.submitted, label: 'Submitted', color: '#4682bf' },
+                  { num: pipeline.pending, label: 'Pending', color: '#b8860b' },
+                  { num: pipeline.response, label: 'Responses', color: '#1a8b5f' },
+                ].map(s => (
+                  <div key={s.label} style={{
+                    background: 'white', borderRadius: 12, padding: '12px 8px',
+                    textAlign: 'center', border: '1px solid #e8eef5',
+                  }}>
+                    <div style={{ fontSize: 20, fontWeight: 700, color: s.color, lineHeight: 1 }}>{s.num}</div>
+                    <div style={{ fontSize: 10, color: '#6b7785', marginTop: 4, fontWeight: 500 }}>{s.label}</div>
                   </div>
                 ))}
               </div>
+
+              {/* Filters & sort */}
+              <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
+                <select
+                  value={pipelineStatusFilter}
+                  onChange={e => setPipelineStatusFilter(e.target.value)}
+                  style={{
+                    padding: '7px 12px', borderRadius: 8, fontSize: 12, fontWeight: 500,
+                    border: '1px solid #e8eef5', background: 'white', color: '#1a2332',
+                    cursor: 'pointer', flex: 1,
+                  }}
+                >
+                  <option value="all">All status</option>
+                  {STATUS_OPTIONS.map(s => (
+                    <option key={s} value={s}>{STATUS_LABELS[s]?.label ?? s}</option>
+                  ))}
+                </select>
+                <select
+                  value={pipelineSort}
+                  onChange={e => setPipelineSort(e.target.value as 'newest' | 'oldest' | 'score')}
+                  style={{
+                    padding: '7px 12px', borderRadius: 8, fontSize: 12, fontWeight: 500,
+                    border: '1px solid #e8eef5', background: 'white', color: '#1a2332',
+                    cursor: 'pointer', flex: 1,
+                  }}
+                >
+                  <option value="newest">Newest first</option>
+                  <option value="oldest">Oldest first</option>
+                  <option value="score">Score desc</option>
+                </select>
+                <button
+                  onClick={fetchPipeline}
+                  style={{
+                    padding: '7px 14px', borderRadius: 8, fontSize: 12, fontWeight: 600,
+                    border: 'none', cursor: 'pointer', background: '#4682bf', color: 'white',
+                  }}
+                >
+                  Refresh
+                </button>
+              </div>
+
+              {pipelineLoading ? (
+                <div style={{ textAlign: 'center', padding: 40, color: '#6b7785', fontSize: 13 }}>Loading pipeline...</div>
+              ) : pipelineApps.length === 0 ? (
+                <div style={{
+                  background: 'white', borderRadius: 16, padding: 32,
+                  border: '1px solid #e8eef5', textAlign: 'center', color: '#6b7785', fontSize: 13,
+                }}>
+                  No applications yet.
+                </div>
+              ) : (
+                /* Pipeline table — mobile card view */
+                pipelineApps.map(app => {
+                  const job = app.seen_jobs
+                  const isEditingNote = editingNotes[app.id] !== undefined
+                  return (
+                    <div key={app.id} style={{
+                      background: 'white', borderRadius: 14, padding: 14,
+                      marginBottom: 10, border: '1px solid #e8eef5',
+                    }}>
+                      {/* Row 1: Company + Status */}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                        <div style={{ fontSize: 14, fontWeight: 600, color: '#1a2332', flex: 1 }}>
+                          {job?.company ?? 'Unknown'}
+                        </div>
+                        <select
+                          value={app.status}
+                          onChange={e => handleStatusChange(app.id, e.target.value)}
+                          disabled={!!savingField[app.id]}
+                          style={{
+                            fontSize: 11, fontWeight: 600, padding: '4px 8px', borderRadius: 6,
+                            border: 'none', cursor: 'pointer',
+                            background: STATUS_LABELS[app.status]?.bg ?? '#f0f5fa',
+                            color: STATUS_LABELS[app.status]?.color ?? '#6b7785',
+                            opacity: savingField[app.id] ? 0.6 : 1,
+                          }}
+                        >
+                          {STATUS_OPTIONS.map(s => (
+                            <option key={s} value={s}>{STATUS_LABELS[s]?.label ?? s}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {/* Row 2: Title + Role */}
+                      <div style={{ fontSize: 13, color: '#4682bf', fontWeight: 500, marginBottom: 6 }}>
+                        {job?.title ?? app.folder_path}
+                      </div>
+
+                      {/* Row 3: Meta chips */}
+                      <div style={{ display: 'flex', gap: 8, fontSize: 11, color: '#6b7785', marginBottom: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+                        <RoleBadge role={app.classified_role} />
+                        {app.suitability_pct && (
+                          <span style={{ fontWeight: 600, color: app.suitability_pct >= 80 ? '#1a8b5f' : '#b8860b' }}>
+                            {app.suitability_pct}%
+                          </span>
+                        )}
+                        <span>{app.submitted_at ? app.submitted_at.slice(0, 10) : app.created_at.slice(0, 10)}</span>
+                        {app.response_status && (
+                          <span style={{ fontWeight: 600, color: app.response_status === 'rejected' ? '#c0392b' : '#1a8b5f' }}>
+                            {app.response_status}
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Notes inline edit */}
+                      <div style={{ borderTop: '1px solid #f0f4f8', paddingTop: 10 }}>
+                        {isEditingNote ? (
+                          <div style={{ display: 'flex', gap: 6 }}>
+                            <input
+                              type="text"
+                              value={editingNotes[app.id] ?? ''}
+                              onChange={e => setEditingNotes(prev => ({ ...prev, [app.id]: e.target.value }))}
+                              onKeyDown={e => { if (e.key === 'Enter') handleNoteSave(app.id) }}
+                              placeholder="Add notes..."
+                              style={{
+                                flex: 1, padding: '6px 10px', borderRadius: 8, fontSize: 12,
+                                border: '1px solid #b4cde7', outline: 'none', color: '#1a2332',
+                              }}
+                              autoFocus
+                            />
+                            <button
+                              onClick={() => handleNoteSave(app.id)}
+                              disabled={!!savingField[`note-${app.id}`]}
+                              style={{
+                                padding: '6px 12px', borderRadius: 8, fontSize: 11, fontWeight: 600,
+                                border: 'none', cursor: 'pointer', background: '#4682bf', color: 'white',
+                              }}
+                            >
+                              {savingField[`note-${app.id}`] ? '...' : 'Save'}
+                            </button>
+                            <button
+                              onClick={() => setEditingNotes(prev => {
+                                const next = { ...prev }
+                                delete next[app.id]
+                                return next
+                              })}
+                              style={{
+                                padding: '6px 10px', borderRadius: 8, fontSize: 11, fontWeight: 500,
+                                border: '1px solid #e8eef5', cursor: 'pointer', background: 'white', color: '#6b7785',
+                              }}
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        ) : (
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <div
+                              onClick={() => setEditingNotes(prev => ({ ...prev, [app.id]: app.notes ?? '' }))}
+                              style={{
+                                fontSize: 12, color: app.notes ? '#1a2332' : '#b4cde7', cursor: 'pointer',
+                                fontStyle: app.notes ? 'normal' : 'italic', flex: 1,
+                              }}
+                            >
+                              {app.notes || 'Click to add notes...'}
+                            </div>
+                            <div style={{ display: 'flex', gap: 6, flexShrink: 0, marginLeft: 8 }}>
+                              {job?.url && (
+                                <a href={job.url} target="_blank" rel="noopener noreferrer" style={{
+                                  fontSize: 11, color: '#4682bf', fontWeight: 500, textDecoration: 'none',
+                                }}>
+                                  JD
+                                </a>
+                              )}
+                              {app.doc_url && (
+                                <a href={app.doc_url} target="_blank" rel="noopener noreferrer" style={{
+                                  fontSize: 11, color: '#4682bf', fontWeight: 500, textDecoration: 'none',
+                                }}>
+                                  Doc
+                                </a>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })
+              )}
+            </div>
+          )}
+
+          {/* ═══ SEARCH TAB (placeholder) ═══ */}
+          {activeTab === 'search' && (
+            <div style={{ padding: '0 20px 20px' }}>
               <div style={{
-                marginTop: 14,
-                fontSize: 13,
-                fontWeight: 500,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                borderTop: '1px solid rgba(255,255,255,0.2)',
-                paddingTop: 12,
-                cursor: 'pointer',
+                background: 'white', borderRadius: 16, padding: 32, marginTop: 16,
+                border: '1px solid #e8eef5', textAlign: 'center', color: '#6b7785', fontSize: 13,
               }}>
-                <span>View full pipeline</span>
-                <span>→</span>
+                Search & filters coming in Phase 5.
               </div>
             </div>
-          </div>
+          )}
+
+          {/* ═══ PROFILE TAB (placeholder) ═══ */}
+          {activeTab === 'profile' && (
+            <div style={{ padding: '0 20px 20px' }}>
+              <div style={{
+                background: 'white', borderRadius: 16, padding: 20, marginTop: 16,
+                border: '1px solid #e8eef5',
+              }}>
+                <div style={{ fontSize: 15, fontWeight: 600, color: '#1a2332', marginBottom: 12 }}>Gayoung Dan (Ina)</div>
+                <div style={{ fontSize: 12, color: '#6b7785', lineHeight: 1.6 }}>
+                  Master of Data Science — Monash University<br />
+                  Target: DA / DS / DE<br />
+                  Regions: Melbourne, Seoul, Singapore, Malaysia
+                </div>
+              </div>
+              <div style={{
+                background: 'white', borderRadius: 16, padding: 20, marginTop: 12,
+                border: '1px solid #e8eef5', textAlign: 'center', color: '#6b7785', fontSize: 13,
+              }}>
+                Settings & API health coming in Phase 5.
+              </div>
+            </div>
+          )}
         </div>
 
         {/* ─── Tab Bar ─── */}
         <div style={{
-          display: 'flex',
-          background: 'white',
-          borderTop: '1px solid #e8eef5',
-          padding: '10px 12px 28px',
-          justifyContent: 'space-around',
-          position: 'fixed',
-          bottom: 0,
-          left: '50%',
-          transform: 'translateX(-50%)',
-          width: '100%',
-          maxWidth: 430,
-          zIndex: 100,
+          display: 'flex', background: 'white', borderTop: '1px solid #e8eef5',
+          padding: '10px 12px 28px', justifyContent: 'space-around',
+          position: 'fixed', bottom: 0, left: '50%', transform: 'translateX(-50%)',
+          width: '100%', maxWidth: 430, zIndex: 100,
         }}>
           {TAB_ITEMS.map((tab) => {
             const isActive = tab.id === activeTab
@@ -610,28 +1204,15 @@ export default function Home() {
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
                 style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  gap: 3,
-                  fontSize: 10,
-                  color: isActive ? '#4682bf' : '#6b7785',
-                  cursor: 'pointer',
-                  padding: '4px 8px',
-                  borderRadius: 10,
-                  border: 'none',
-                  background: 'transparent',
-                  fontWeight: isActive ? 600 : 400,
+                  display: 'flex', flexDirection: 'column', alignItems: 'center',
+                  gap: 3, fontSize: 10, color: isActive ? '#4682bf' : '#6b7785',
+                  cursor: 'pointer', padding: '4px 8px', borderRadius: 10,
+                  border: 'none', background: 'transparent', fontWeight: isActive ? 600 : 400,
                 }}
               >
                 <div style={{
-                  width: 36,
-                  height: 28,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  borderRadius: 8,
-                  background: isActive ? '#f0f5fa' : 'transparent',
+                  width: 36, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  borderRadius: 8, background: isActive ? '#f0f5fa' : 'transparent',
                 }}>
                   <TabIcon type={tab.icon} active={isActive} />
                 </div>
