@@ -1617,7 +1617,7 @@ export default function Home() {
                   </div>
                   <div>
                     <div style={{ fontSize: 16, fontWeight: 600, color: '#1a2332' }}>Gayoung Dan (Ina)</div>
-                    <div style={{ fontSize: 12, color: '#6b7785' }}>Fortuna mihi favet</div>
+                    <div style={{ fontSize: 12, color: '#6b7785' }}>Fortuna mihi favet ✨</div>
                   </div>
                 </div>
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
