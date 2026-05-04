@@ -4,6 +4,17 @@ import './globals.css'
 export const metadata: Metadata = {
   title: 'Job Engine',
   description: 'Personal job application dashboard',
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'black-translucent',
+    title: 'Job Engine',
+  },
+  icons: {
+    apple: '/apple-touch-icon.png',
+  },
+  formatDetection: {
+    telephone: false,
+  },
 }
 
 export const viewport: Viewport = {
@@ -11,7 +22,8 @@ export const viewport: Viewport = {
   initialScale: 1,
   maximumScale: 1,
   userScalable: false,
-  themeColor: '#f8fafb',
+  themeColor: '#1e3a5f',
+  viewportFit: 'cover',
 }
 
 export default function RootLayout({

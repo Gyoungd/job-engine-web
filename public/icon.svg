@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="96" fill="#1e3a5f"/>
+  <text x="256" y="200" text-anchor="middle" font-family="system-ui,-apple-system,sans-serif" font-size="120" font-weight="700" fill="#ffffff">JOB</text>
+  <text x="256" y="340" text-anchor="middle" font-family="system-ui,-apple-system,sans-serif" font-size="100" font-weight="800" fill="#4682bf">ENGINE</text>
+  <rect x="96" y="380" width="320" height="4" rx="2" fill="#4682bf" opacity="0.5"/>
+  <circle cx="160" cy="420" r="8" fill="#1a8b5f"/>
+  <circle cx="200" cy="420" r="8" fill="#b8860b"/>
+  <circle cx="240" cy="420" r="8" fill="#4682bf"/>
+  <rect x="270" y="414" width="130" height="12" rx="6" fill="#4682bf" opacity="0.3"/>
+</svg>

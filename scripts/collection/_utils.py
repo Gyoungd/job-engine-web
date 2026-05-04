@@ -122,17 +122,22 @@ CREATE TABLE IF NOT EXISTS seen_jobs (
     times_seen       INTEGER DEFAULT 1,
     queued           INTEGER DEFAULT 0,
     classified_role  TEXT DEFAULT 'unknown',
-    source_region    TEXT DEFAULT 'unknown'
+    source_region    TEXT DEFAULT 'unknown',
+    posted_at        TEXT DEFAULT NULL,
+    posted_at_source TEXT DEFAULT 'unknown'
 );
 CREATE INDEX IF NOT EXISTS idx_first_seen ON seen_jobs(first_seen);
 CREATE INDEX IF NOT EXISTS idx_source ON seen_jobs(source);
 CREATE INDEX IF NOT EXISTS idx_classified_role ON seen_jobs(classified_role);
+CREATE INDEX IF NOT EXISTS idx_posted_at ON seen_jobs(posted_at DESC);
 """
 
 # Migration for existing DBs (adds new columns if missing)
 _MIGRATIONS = [
     "ALTER TABLE seen_jobs ADD COLUMN classified_role TEXT DEFAULT 'unknown'",
     "ALTER TABLE seen_jobs ADD COLUMN source_region TEXT DEFAULT 'unknown'",
+    "ALTER TABLE seen_jobs ADD COLUMN posted_at TEXT DEFAULT NULL",
+    "ALTER TABLE seen_jobs ADD COLUMN posted_at_source TEXT DEFAULT 'unknown'",
 ]
 
 
@@ -176,12 +181,12 @@ def mark_seen(
             """INSERT INTO seen_jobs
                (hash, source, title, company, location, url,
                 first_seen, last_seen, times_seen, queued,
-                classified_role, source_region)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)""",
+                classified_role, source_region, posted_at, posted_at_source)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)""",
             (
                 job.hash, job.source, job.title, job.company,
                 job.location, job.url, now, now, 1 if queued else 0,
-                classified_role, job.source_region,
+                classified_role, job.source_region, job.posted_at, job.posted_at_source,
             ),
         )
         conn.commit()

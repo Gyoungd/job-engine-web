@@ -2,7 +2,7 @@
 
 > **Last Updated:** 2026-05-04
 > **Owner:** Gayoung Dan (Ina)
-> **Status:** Active Development — Phase 5 IN PROGRESS (web tasks done, cron tasks pending)
+> **Status:** Active Development — Phase 5 ✅ COMPLETE, Phase 5.1 PWA 🟡 PARTIAL
 > **Repository:** [https://github.com/Gyoungd/job-engine-web](https://github.com/Gyoungd/job-engine-web)
 > **Production URL:** [https://job-engine-web.vercel.app](https://job-engine-web.vercel.app)
 
@@ -96,12 +96,14 @@ seen_jobs           Job listings collected from sources
   - hash (PK)         SHA256(company|title|location), normalized
   - source            'linkedin' | 'seek' | 'adzuna' | 'worknet' | 'jobkorea'
   - title, company, location, url
-  - first_seen        TIMESTAMPTZ — set on INSERT, immutable
+  - first_seen        TIMESTAMPTZ — set on INSERT (system ingestion time), immutable
   - last_seen         TIMESTAMPTZ — updated on every UPSERT collision
   - times_seen        INTEGER — incremented on collision
   - queued            INTEGER — 0/1, MAX(old, new) on collision
   - classified_role   'DA' | 'DS' | 'DE' | 'unknown'
   - source_region     'melbourne' | 'korea' | 'singapore' | 'malaysia' | 'unknown'
+  - posted_at         TIMESTAMPTZ — JD posted date (from API or extracted from alert text), NULL if unknown
+  - posted_at_source  TEXT — source of posted_at ('api' | 'estimated_from_alert' | 'unknown')
   - score             INTEGER — Haiku ranking output (NULL if unscored)
   - score_reasoning   TEXT — Haiku rationale
 
@@ -149,28 +151,39 @@ Each tab section maps UI components to API endpoints, with implementation status
 
 ### 3.1 Home Tab (Dashboard)
 
-**Purpose:** At-a-glance overview of queue status, top picks, drafts, and pipeline.
+**Purpose:** At-a-glance overview of queue status, top picks across application lifecycle, drafts, and pipeline.
 
 
-| Component                 | Function                                      | API                                                      | Status |
-| ------------------------- | --------------------------------------------- | -------------------------------------------------------- | ------ |
-| Stats grid (4 cards)      | Display Raw / New / Target / Top counts       | `GET /api/queue/stats`                                   | ✅      |
-| Refresh queue button      | Re-fetch latest counts                        | `GET /api/queue/stats` + `GET /api/queue`                | ✅      |
-| Generate top 10 button    | Trigger Haiku scoring on unscored jobs        | `POST /api/rank`                                         | ✅      |
-| Top picks list (12 cards) | Display ranked JDs with score, role, location | `GET /api/queue?filter=ranked&limit=12`                  | ✅      |
-| Preview JD button         | Open JD URL in new tab                        | External link                                            | ✅      |
-| Generate resume button    | Trigger Sonnet resume tailoring               | `POST /api/generate-resume`                              | ✅      |
-| Draft state on job cards  | Badge + "View Draft →" for jobs with drafts   | `GET /api/applications` cross-ref by `jd_hash`           | ✅      |
-| Drafts ready section      | Show pending drafts (max 3)                   | `GET /api/applications?status=draft,docs_copied&limit=3` | ✅      |
-| Pipeline card             | Submitted / Pending / Response counts         | `GET /api/applications/summary`                          | ✅      |
+| Component                              | Function                                                                                                                                                    | API                                                                                               | Status |
+| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- | ------ |
+| Stats grid (4 cards)                   | Display Raw / New / Target / Top counts                                                                                                                     | `GET /api/queue/stats`                                                                            | ✅      |
+| Refresh queue button                   | Re-fetch latest counts                                                                                                                                      | `GET /api/queue/stats` + `GET /api/queue`                                                         | ✅      |
+| Generate top 10 button                 | Trigger Haiku scoring on unscored jobs                                                                                                                      | `POST /api/rank`                                                                                  | ✅      |
+| **Top picks list (max 5 cards)**       | Display ranked JDs with lifecycle-aware sorting                                                                                                             | `GET /api/queue?filter=ranked&limit=5&include_application=true&exclude_status=rejected,withdrawn` | ✅      |
+| **Top picks card — idle state**        | Score badge + Generate resume button                                                                                                                        | inline                                                                                            | ✅      |
+| **Top picks card — draft state**       | Score + ✓ Draft ready badge + View draft → (→ Drafts tab)                                                                                                   | inline                                                                                            | ✅      |
+| **Top picks card — docs_copied state** | Score + ✓ Docs ready badge + Open doc → (Google Doc)                                                                                                        | inline                                                                                            | ✅      |
+| **Top picks card — applied state**     | Score + ✓ Applied · {relative time} badge + 3px green left strip + View in pipeline → (→ Pipeline tab, scrolls to row)                                      | inline                                                                                            | ✅      |
+| **Show all link**                      | When ranked result count > 5, show "Show all N in Search →" footer link → routes to Search tab with `score_gte=80&exclude_status=rejected,withdrawn` preset | inline                                                                                            | ✅      |
+| Preview JD button                      | Open JD URL in new tab                                                                                                                                      | External link                                                                                     | ✅      |
+| Generate resume button                 | Trigger Sonnet resume tailoring (idle state only)                                                                                                           | `POST /api/generate-resume`                                                                       | ✅      |
+| Drafts ready section                   | Show pending drafts (max 3)                                                                                                                                 | `GET /api/applications?status=draft,docs_copied&limit=3`                                          | ✅      |
+| Pipeline card                          | Submitted / Pending / Response counts                                                                                                                       | `GET /api/applications/summary`                                                                   | ✅      |
 
+
+**Top picks sort order (server-side):**
+
+1. `application.status_priority DESC` — where active states (`null`, `draft`, `docs_copied`) get priority 1, applied states get priority 0
+2. `score DESC` (NULLS LAST)
+3. `first_seen DESC` (tiebreaker)
 
 **User flow:**
 
-1. User opens app → stats and top picks load; cards with existing drafts show "View Draft →"
-2. User reviews top picks → clicks "Generate resume" on chosen JD
-3. App calls Sonnet → card immediately shows "✓ Draft ready" badge + "View Draft →"
-4. User navigates to Drafts tab to generate docs + apply
+1. User opens app → Top picks loads up to 5 cards: active (no application or in-progress draft) at top, applied at bottom.
+2. User reviews active cards → clicks Generate resume on chosen JD → card transitions to draft state.
+3. User clicks View draft → on draft card → Drafts tab opens.
+4. After submitting via Pipeline, user returns to Home → applied card stays visible at bottom of Top picks with green strip + "✓ Applied · 2h ago" — confirms today's progress at a glance.
+5. User scrolls past applied cards → clicks "Show all N in Search →" footer link → Search tab opens with score and exclude_status filters preset.
 
 ---
 
@@ -276,11 +289,24 @@ Complete API surface with implementation status.
 ### Queue endpoints
 
 
-| Method | Path               | Purpose                         | Status |
-| ------ | ------------------ | ------------------------------- | ------ |
-| GET    | `/api/queue/stats` | Raw / New / Target / Top counts | ✅      |
-| GET    | `/api/queue`       | Paginated job list with filters | ✅      |
+| Method | Path               | Purpose                                                     | Status |
+| ------ | ------------------ | ----------------------------------------------------------- | ------ |
+| GET    | `/api/queue/stats` | Raw / New / Target / Top counts                             | ✅      |
+| GET    | `/api/queue`       | Paginated job list with filters + optional application join | ✅      |
 
+
+**GET `/api/queue` — Phase 5.2 query params:**
+
+- `include_application=true` — loads `applications` for matching `jd_hash` values (secondary query + merge; latest row by `created_at`). Response includes `application: { id, status, doc_url, submitted_at, created_at } | null`.
+- `exclude_status=rejected,withdrawn` — comma-separated application statuses to exclude. Rows where `application.status` is in the set are dropped. Jobs without applications are always kept.
+- `score_gte=80` — minimum score (works with or without `include_application`).
+- When `filter=ranked` AND `include_application=true`, sort changes from `score DESC` to:
+  ```
+  CASE WHEN application.status IN ('submitted','sent_cold','online_test','interview','offer')
+       THEN 0 ELSE 1 END DESC,
+  score DESC NULLS LAST,
+  first_seen DESC
+  ```
 
 ### Scoring & Generation
 
@@ -471,16 +497,16 @@ Existing `_utils.py` (SQLite layer) remains untouched — supports local/dev fal
 
 Add `--push-supabase` (collectors) and `--supabase` (dedup) CLI flags. Default behavior preserves existing SQLite-only flow.
 
-`**1_collect_alerts.py`:**
+`1_collect_alerts.py`:
 
 - After existing local SQLite write, if `--push-supabase` flag set, call `push_jobs_to_supabase(jobs, source='gmail', classify_fn=...)`
 - `classify_fn` reuses existing `classify_role()` from `2_dedup_only.py`
 
-`**1_collect_adzuna.py`:**
+`1_collect_adzuna.py`:
 
 - Same pattern as alerts. `source='adzuna'`.
 
-`**2_dedup_only.py`:**
+`2_dedup_only.py`:
 
 - When `--supabase` flag set, run dedup against Supabase `seen_jobs` instead of SQLite
 - Update `queued=1` for newly-classified target-role JDs (DA/DS/DE)
@@ -657,7 +683,22 @@ Day 6:  End-to-end test: let cron run for 24h → verify Profile tab numbers mat
 
 ---
 
-### Phase 5.1 — Mobile Push Notifications (PWA) ⏳ DEFERRED
+### Phase 5.1 — PWA (Progressive Web App) 🟡 PARTIAL
+
+**PWA installability (홈 화면 앱):** ✅ COMPLETE
+
+- `app/manifest.ts` — `display: standalone`, theme color, icon
+- `app/icon.tsx` — 512x512 동적 PNG 생성 (favicon + PWA icon)
+- `app/apple-icon.tsx` — 180x180 Apple touch icon
+- `app/layout.tsx` — `apple-mobile-web-app-capable`, `statusBarStyle: black-translucent`
+- `app/globals.css` — `env(safe-area-inset-*)` 지원, overscroll 방지
+- `app/page.tsx` — Header/Tab bar safe area padding 적용
+
+iPhone에서 Safari → 공유 → "홈 화면에 추가"로 네이티브 앱처럼 설치 가능.
+
+**Push notifications:** ⏳ DEFERRED
+
+### Phase 5.1b — Mobile Push Notifications ⏳ DEFERRED
 
 **Trigger condition:** After 2-3 weeks of Phase 5 production use, evaluate whether passive dashboard pull is sufficient or push notifications would meaningfully change application throughput.
 
@@ -728,6 +769,77 @@ Items deferred indefinitely or pending business case validation.
 
 ---
 
+### Phase 5.2 — Top picks lifecycle visibility ✅ COMPLETE
+
+**Goal:** Make Top picks reflect the full application lifecycle within the same surface, eliminating dead-end navigation when applied cards route to Drafts tab.
+
+**Implemented:**
+
+1. **API — `/api/queue`**
+  - `include_application`, `exclude_status`, `score_gte` query params
+  - Latest application per JD via batched `applications` select + merge (avoids brittle PostgREST embed typing)
+  - When `filter=ranked` + `include_application=true`: sort active (non-applied) cards first, then `score DESC`, then `first_seen DESC`; `limit`/`offset` applied after sort in JS (cap 2000 rows)
+  - Backward compat: omitting `include_application` keeps prior behaviour (Supabase `range` pagination + `total` from count)
+2. **Frontend — Home Top picks**
+  - Limit 5; `exclude_status=rejected,withdrawn`; `job.application` from API; applied → Pipeline + scroll/highlight; docs with URL → Open doc; Search footer when `total > 5`
+3. **Frontend — Search tab**
+  - `include_application=true` on queue fetch; same card branching as Home for draft / doc / applied
+4. **Frontend — Pipeline**
+  - Row `id="pipeline-row-{id}"`; `useEffect` smooth scroll + 2s highlight when `pipelineScrollTarget` set
+
+**Deferred / follow-up:**
+
+- `GET /api/queue/stats` "Top" metric semantics vs applied jobs (see acceptance notes in original spec)
+
+**DESIGN_SYSTEM.md additions:**
+
+```
+### Top picks card variants
+ 
+idle:
+  background: #ffffff
+  border: 1px solid #e8eef5
+  no left strip
+ 
+draft / docs_copied:
+  background: #f8fbff
+  border: 1px solid #b4cde7
+  no left strip
+ 
+applied (submitted / sent_cold / online_test / interview / offer):
+  background: #ffffff
+  border: 1px solid #e8eef5
+  border-left: 3px solid #1a8b5f
+  padding-left: 11px (instead of 14px to compensate for strip)
+  opacity: 0.92
+ 
+Applied badge:
+  background: #e6f7ef
+  color: #1a8b5f
+  format: "✓ Applied · {relative_time}"
+  font-size: 10px, font-weight: 600
+ 
+View in pipeline button:
+  background: #1a8b5f
+  color: white
+  font-weight: 600
+```
+
+**Acceptance criteria:**
+
+- Home Top picks displays max 5 cards
+- Cards with `application.status IN ('rejected', 'withdrawn')` are excluded
+- Cards with active application states sort above applied states regardless of score
+- Applied cards display green left strip + "✓ Applied · {relative time}" badge + "View in pipeline →" button
+- Clicking "View in pipeline →" navigates to Pipeline tab AND scrolls to that application's row with 2s highlight
+- "Show all N in Search →" footer link appears only when total ranked count > 5
+- Mobile (390px width): no layout breaks, badge wraps cleanly when card has 2 badges
+- API: calling `/api/queue?filter=ranked&limit=5&include_application=true&exclude_status=rejected,withdrawn` returns ≤ 5 jobs with nested application object
+- API: backward compat — calling `/api/queue?filter=ranked&limit=12` (existing call shape) returns same response as before
+**Estimated effort:** 3-4 hours implementation + mobile device testing.
+
+---
+
 ## 6. Cost Tracking
 
 
@@ -791,15 +903,17 @@ Items deferred indefinitely or pending business case validation.
 ## 9. Change Log
 
 
-| Date       | Phase          | Summary                                                                                                                                                                                                    |
-| ---------- | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 2026-05-02 | Phase 1-2      | Initial setup, deployment, queue APIs, Home tab                                                                                                                                                            |
-| 2026-05-03 | Phase 3        | Rank, generate-resume, docs/copy-base APIs + OAuth                                                                                                                                                         |
-| 2026-05-03 | Phase 4        | Home API wiring, Drafts tab, Pipeline tab, 4 new APIs                                                                                                                                                      |
-| 2026-05-03 | Phase 4.1      | UX fixes: draft state on Home cards, Generate Docs → Open Resume, duplicate prevention, OAuth account switch                                                                                               |
-| 2026-05-04 | Phase 5 spec   | Cloud collection cadence finalized (Gmail 8x/day @ 2hr, Adzuna 1x/day); email digest removed; Profile tab spec'd; Phase 5.1 (PWA push) deferred pending usage data                                         |
-| 2026-05-04 | Phase 5 (web)  | Profile tab (collection monitoring cards) + Search tab (text search, filters, sort, pagination) + collection-runs/summary API                                                                              |
-| 2026-05-04 | Phase 5 (cron) | supabase_utils.py, dual-write collectors (--push-supabase), GH Actions workflows, config/scripts integrated into job-engine-web                                                                            |
-| 2026-05-04 | Phase 5 UX     | Pipeline: response_status 자동 매핑, 자동 Sheets full sync, sticky header; Search: sticky header; Sheets sync 범위 확장 + Response 컬럼; status 추가 (sent_cold, online_test); .env.local SA JSON 수정; Phase 5 ✅ COMPLETE |
+| Date       | Phase          | Summary                                                                                                                                                                                                                          |
+| ---------- | -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 2026-05-02 | Phase 1-2      | Initial setup, deployment, queue APIs, Home tab                                                                                                                                                                                  |
+| 2026-05-03 | Phase 3        | Rank, generate-resume, docs/copy-base APIs + OAuth                                                                                                                                                                               |
+| 2026-05-03 | Phase 4        | Home API wiring, Drafts tab, Pipeline tab, 4 new APIs                                                                                                                                                                            |
+| 2026-05-03 | Phase 4.1      | UX fixes: draft state on Home cards, Generate Docs → Open Resume, duplicate prevention, OAuth account switch                                                                                                                     |
+| 2026-05-04 | Phase 5 spec   | Cloud collection cadence finalized (Gmail 8x/day @ 2hr, Adzuna 1x/day); email digest removed; Profile tab spec'd; Phase 5.1 (PWA push) deferred pending usage data                                                               |
+| 2026-05-04 | Phase 5 (web)  | Profile tab (collection monitoring cards) + Search tab (text search, filters, sort, pagination) + collection-runs/summary API                                                                                                    |
+| 2026-05-04 | Phase 5 (cron) | supabase_utils.py, dual-write collectors (--push-supabase), GH Actions workflows, config/scripts integrated into job-engine-web                                                                                                  |
+| 2026-05-04 | Phase 5 UX     | Pipeline: response_status 자동 매핑, 자동 Sheets full sync, sticky header; Search: sticky header; Sheets sync 범위 확장 + Response 컬럼; status 추가 (sent_cold, online_test); .env.local SA JSON 수정; Phase 5 ✅ COMPLETE                       |
+| 2026-05-04 | Phase 5.1 PWA  | manifest.ts, icon.tsx, apple-icon.tsx, iOS standalone 메타태그, safe area inset 적용 — 홈 화면 앱 설치 가능                                                                                                                                    |
+| 2026-05-04 | Phase 5.2      | Top picks: limit 5, application merge API, applied → Pipeline scroll+highlight, Open doc for docs_copied, Search `include_application` + preset footer; `/api/queue` params `include_application`, `exclude_status`, `score_gte` |
 
 

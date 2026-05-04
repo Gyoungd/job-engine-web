@@ -43,12 +43,18 @@ def classify_role(title: str, roles_config: dict) -> str:
     """
     Match JD title against role keywords from search-profiles.yaml.
     Returns 'DA', 'DS', 'DE', or 'unknown'.
+    Longer keywords are checked first for accuracy (e.g. 'data engineer'
+    beats 'data analyst' when both could substring-match).
     """
     title_lower = title.lower()
+    candidates: list[tuple[int, str]] = []
     for role, cfg in roles_config.items():
         for keyword in cfg.get("must_include", []):
             if keyword in title_lower:
-                return role
+                candidates.append((len(keyword), role))
+    if candidates:
+        candidates.sort(key=lambda x: x[0], reverse=True)
+        return candidates[0][1]
     return "unknown"
 
 

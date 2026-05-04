@@ -64,6 +64,8 @@ def upsert_job(job: JobPost, classified_role: str = "unknown", queued: bool = Fa
         "queued": 1 if queued else 0,
         "classified_role": classified_role,
         "source_region": job.source_region,
+        "posted_at": job.posted_at,
+        "posted_at_source": job.posted_at_source,
     }
 
     client = get_client()

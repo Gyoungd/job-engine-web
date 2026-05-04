@@ -6,6 +6,9 @@ export async function GET() {
     const sevenDaysAgo = new Date(
       Date.now() - 7 * 24 * 60 * 60 * 1000
     ).toISOString()
+    const oneDayAgo = new Date(
+      Date.now() - 24 * 60 * 60 * 1000
+    ).toISOString()
 
     const [rawRes, newRes, targetRes, topRes] = await Promise.all([
       supabaseAdmin
@@ -16,7 +19,7 @@ export async function GET() {
       supabaseAdmin
         .from('seen_jobs')
         .select('*', { count: 'exact', head: true })
-        .eq('queued', true),
+        .gte('posted_at', oneDayAgo),
 
       supabaseAdmin
         .from('seen_jobs')

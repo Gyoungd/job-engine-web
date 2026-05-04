@@ -23,18 +23,41 @@ roles:
       - graduate data analyst
       - associate data analyst
       - bi analyst
-      - business analyst   # often used interchangeably with data analyst; review per JD
+      - business analyst
       - business intelligence analyst
       - reporting analyst
       - insights analyst
       - analytics analyst
       - commercial analyst
       - operations analyst
-      - marketing analyst   # data-focused; review per JD
-      - data analyst
-      - 데이터 분석       # 신규
-      - 데이터분석        # 띄어쓰기 없는 버전
-      - 비즈니스 분석     # business analyst 한국어
+      - marketing analyst
+      - financial analyst
+      - risk analyst
+      - credit analyst
+      - product analyst
+      - strategy analyst
+      - research analyst
+      - pricing analyst
+      - performance analyst
+      - revenue analyst
+      - digital analyst
+      - cx analyst
+      - customer analyst
+      - supply chain analyst
+      - fraud analyst
+      - compliance analyst
+      - workforce analyst
+      - people analyst
+      - hr analyst
+      - analytics associate
+      - data analytics
+      - analytics intern
+      - data intern
+      - 데이터 분석
+      - 데이터분석
+      - 비즈니스 분석
+      - 비즈니스분석
+      - 리서치 분석
     boost:
       - sql
       - power bi
@@ -42,6 +65,8 @@ roles:
       - dashboard
       - kpi
       - reporting
+      - excel
+      - looker
 
   DS:
     must_include:
@@ -52,9 +77,26 @@ roles:
       - data science graduate
       - junior machine learning engineer
       - junior ml engineer
+      - ml engineer
+      - machine learning engineer
       - applied scientist
       - analytics scientist
       - quantitative analyst
+      - research scientist
+      - ai engineer
+      - ai researcher
+      - nlp engineer
+      - computer vision engineer
+      - deep learning engineer
+      - decision scientist
+      - statistical analyst
+      - modelling analyst
+      - predictive analyst
+      - data science intern
+      - 데이터 사이언티스트
+      - 데이터사이언티스트
+      - 머신러닝
+      - AI 엔지니어
     boost:
       - machine learning
       - python
@@ -64,18 +106,43 @@ roles:
       - feature engineering
       - a/b test
       - statistical model
+      - tensorflow
+      - pytorch
+      - nlp
+      - deep learning
 
   DE:
     must_include:
-      - junior sql developer
-      - sql developer
+      - data engineer
       - junior data engineer
       - graduate data engineer
       - associate data engineer
+      - sql developer
+      - junior sql developer
+      - database developer
+      - junior database developer
       - etl developer
       - analytics engineer
-      - junior database developer
       - data pipeline engineer
+      - data platform engineer
+      - cloud data engineer
+      - data infrastructure engineer
+      - data warehouse engineer
+      - bi engineer
+      - bi developer
+      - business intelligence developer
+      - integration engineer
+      - data integration
+      - database administrator
+      - dba
+      - data architect
+      - dataops engineer
+      - big data engineer
+      - data engineer intern
+      - 데이터 엔지니어
+      - 데이터엔지니어
+      - DB 엔지니어
+      - SQL 개발
     boost:
       - sql
       - etl
@@ -85,6 +152,11 @@ roles:
       - kafka
       - docker
       - data warehouse
+      - dbt
+      - snowflake
+      - bigquery
+      - redshift
+      - databricks
 
 # ============================================================
 # SENIORITY EXCLUSIONS (applies to ALL roles)

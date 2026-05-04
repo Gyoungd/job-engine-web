@@ -1,5 +1,6 @@
 'use client'
 
+import type { CSSProperties } from 'react'
 import { useEffect, useState, useCallback } from 'react'
 
 /* ─── types ─── */
@@ -8,6 +9,15 @@ interface Stats {
   new: number
   target: number
   top: number
+}
+
+/** Embedded row from `/api/queue?include_application=true` */
+type QueueApplication = {
+  id: string
+  status: string
+  doc_url: string | null
+  submitted_at: string | null
+  created_at: string
 }
 
 interface Job {
@@ -22,6 +32,7 @@ interface Job {
   first_seen: string
   score: number | null
   queued: boolean
+  application?: QueueApplication | null
 }
 
 interface ApplicationJob {
@@ -65,6 +76,33 @@ const ROLE_COLORS: Record<string, string> = {
   DS: '#4682bf',
   DA: '#6c9bcd',
   DE: '#90b4da',
+}
+
+const ACTIVE_DRAFT_STATUSES = ['draft', 'docs_copied'] as const
+const APPLIED_STATUSES = ['submitted', 'sent_cold', 'online_test', 'interview', 'offer'] as const
+
+type AppliedStatus = (typeof APPLIED_STATUSES)[number]
+type ActiveDraftStatus = (typeof ACTIVE_DRAFT_STATUSES)[number]
+
+function getCardState(application: QueueApplication | null | undefined): 'idle' | ActiveDraftStatus | AppliedStatus {
+  if (!application) return 'idle'
+  if ((ACTIVE_DRAFT_STATUSES as readonly string[]).includes(application.status)) {
+    return application.status as ActiveDraftStatus
+  }
+  if ((APPLIED_STATUSES as readonly string[]).includes(application.status)) {
+    return application.status as AppliedStatus
+  }
+  return 'idle'
+}
+
+function getQueueApplicationForHash(hash: string, homeJobs: Job[], searchJobList: Job[]): QueueApplication | null {
+  for (const j of homeJobs) {
+    if (j.hash === hash && j.application) return j.application
+  }
+  for (const j of searchJobList) {
+    if (j.hash === hash && j.application) return j.application
+  }
+  return null
 }
 
 const STATUS_OPTIONS = ['draft', 'docs_copied', 'submitted', 'sent_cold', 'online_test', 'interview', 'offer', 'rejected', 'withdrawn']
@@ -203,7 +241,10 @@ export default function Home() {
   const [rankResult, setRankResult] = useState<string | null>(null)
   const [pipeline, setPipeline] = useState<PipelineSummary>({ submitted: 0, pending: 0, response: 0 })
   const [homeDrafts, setHomeDrafts] = useState<Application[]>([])
-  const [draftsByHash, setDraftsByHash] = useState<Record<string, Application>>({})
+  const [rankedTotalCount, setRankedTotalCount] = useState(0)
+  const [pipelineScrollTarget, setPipelineScrollTarget] = useState<string | null>(null)
+  const [searchScoreGte, setSearchScoreGte] = useState<number | null>(null)
+  const [searchExcludeStatus, setSearchExcludeStatus] = useState('')
 
   /* ─── Drafts state ─── */
   const [drafts, setDrafts] = useState<Application[]>([])
@@ -243,25 +284,19 @@ export default function Home() {
   const fetchHomeData = useCallback(async () => {
     setLoading(true)
     try {
-      const [statsRes, jobsRes, summaryRes, draftsRes, allAppsRes] = await Promise.all([
+      const [statsRes, jobsRes, summaryRes, draftsRes] = await Promise.all([
         fetch('/api/queue/stats').then(r => r.json()),
-        fetch('/api/queue?filter=ranked&limit=12').then(r => r.json()),
+        fetch(
+          '/api/queue?filter=ranked&limit=5&include_application=true&exclude_status=rejected,withdrawn',
+        ).then(r => r.json()),
         fetch('/api/applications/summary').then(r => r.json()),
         fetch('/api/applications?status=draft,docs_copied&limit=3').then(r => r.json()),
-        fetch('/api/applications?limit=100').then(r => r.json()),
       ])
       setStats(statsRes)
       setJobs(jobsRes.jobs ?? [])
       setPipeline(summaryRes)
       setHomeDrafts(draftsRes.applications ?? [])
-
-      const hashMap: Record<string, Application> = {}
-      for (const app of (allAppsRes.applications ?? []) as Application[]) {
-        if (!hashMap[app.jd_hash] || app.created_at > hashMap[app.jd_hash].created_at) {
-          hashMap[app.jd_hash] = app
-        }
-      }
-      setDraftsByHash(hashMap)
+      setRankedTotalCount(jobsRes.total ?? (jobsRes.jobs?.length ?? 0))
     } catch (e) {
       console.error('Fetch failed:', e)
     } finally {
@@ -300,7 +335,7 @@ export default function Home() {
 
   /* ─── Generate resume (Sonnet) ─── */
   async function handleGenerate(hash: string) {
-    const existingDraft = draftsByHash[hash]
+    const existingDraft = getQueueApplicationForHash(hash, jobs, searchJobs)
     if (existingDraft || generating[hash] === 'loading' || generating[hash] === 'done') return
     setGenerating(prev => ({ ...prev, [hash]: 'loading' }))
     try {
@@ -370,15 +405,8 @@ export default function Home() {
             ? { ...d, status: 'docs_copied', doc_url: data.doc_url, doc_id: data.doc_id }
             : d
         ))
-        setDraftsByHash(prev => {
-          const updated = { ...prev }
-          for (const [hash, draft] of Object.entries(updated)) {
-            if (draft.id === appId) {
-              updated[hash] = { ...draft, status: 'docs_copied', doc_url: data.doc_url, doc_id: data.doc_id }
-            }
-          }
-          return updated
-        })
+        void fetchHomeData()
+        if (activeTab === 'search') void fetchSearch(true)
         window.open(data.doc_url, '_blank')
       }
     } catch (e) {
@@ -419,12 +447,18 @@ export default function Home() {
     const off = resetOffset ? 0 : searchOffset
     if (resetOffset) setSearchOffset(0)
     try {
-      const params = new URLSearchParams({ limit: '20', offset: String(off) })
+      const params = new URLSearchParams({
+        limit: '20',
+        offset: String(off),
+        include_application: 'true',
+      })
       if (searchQuery) params.set('q', searchQuery)
       if (searchRole !== 'all') params.set('role', searchRole)
       if (searchRegion !== 'all') params.set('region', searchRegion)
       if (searchSource !== 'all') params.set('source', searchSource)
       if (searchSort !== 'newest') params.set('sort', searchSort)
+      if (searchScoreGte != null) params.set('score_gte', String(searchScoreGte))
+      if (searchExcludeStatus) params.set('exclude_status', searchExcludeStatus)
       const res = await fetch(`/api/queue?${params}`)
       const data = await res.json()
       if (resetOffset) {
@@ -438,12 +472,11 @@ export default function Home() {
     } finally {
       setSearchLoading(false)
     }
-  }, [searchQuery, searchRole, searchRegion, searchSource, searchSort, searchOffset])
+  }, [searchQuery, searchRole, searchRegion, searchSource, searchSort, searchOffset, searchScoreGte, searchExcludeStatus])
 
   useEffect(() => {
     if (activeTab === 'search') fetchSearch(true)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab, searchRole, searchRegion, searchSource, searchSort])
+  }, [activeTab, searchRole, searchRegion, searchSource, searchSort, searchScoreGte, searchExcludeStatus, fetchSearch])
 
   /* ─── Profile tab data fetch ─── */
   const fetchProfile = useCallback(async () => {
@@ -489,6 +522,20 @@ export default function Home() {
   useEffect(() => {
     if (activeTab === 'pipeline') fetchPipeline()
   }, [activeTab, fetchPipeline])
+
+  useEffect(() => {
+    if (activeTab !== 'pipeline' || !pipelineScrollTarget) return
+    const el = document.getElementById(`pipeline-row-${pipelineScrollTarget}`)
+    if (!el) return
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    el.style.transition = 'background-color 0.3s'
+    el.style.backgroundColor = '#fff8d8'
+    const timer = setTimeout(() => {
+      el.style.backgroundColor = ''
+      setPipelineScrollTarget(null)
+    }, 2000)
+    return () => clearTimeout(timer)
+  }, [activeTab, pipelineScrollTarget, pipelineApps])
 
   /* ─── Pipeline: update status ─── */
   async function handleStatusChange(appId: string, newStatus: string) {
@@ -562,7 +609,7 @@ export default function Home() {
 
           {/* ─── Header ─── */}
           <div style={{
-            padding: '52px 20px 8px',
+            padding: 'calc(env(safe-area-inset-top, 20px) + 12px) 20px 8px',
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'center',
@@ -597,14 +644,14 @@ export default function Home() {
               <div style={{ padding: '0 20px' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, margin: '8px 0 16px' }}>
                   {[
-                    { num: stats.raw, label: 'Raw' },
-                    { num: stats.new, label: 'New' },
-                    { num: stats.target, label: 'Target' },
-                    { num: stats.top, label: 'Top' },
+                    { num: stats.raw, label: 'Raw', title: 'Collected (7d)' },
+                    { num: stats.new, label: 'New', title: 'Posted (24h)' },
+                    { num: stats.target, label: 'Target', title: 'Target role + queued' },
+                    { num: stats.top, label: 'Top', title: 'Score ≥80' },
                   ].map((s) => (
-                    <div key={s.label} style={{
+                    <div key={s.label} title={s.title} style={{
                       background: 'white', borderRadius: 14, padding: '14px 6px',
-                      textAlign: 'center', border: '1px solid #e8eef5',
+                      textAlign: 'center', border: '1px solid #e8eef5', cursor: 'help',
                     }}>
                       <div style={{ fontSize: 24, fontWeight: 700, color: '#1e3a5f', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>
                         {loading ? '–' : s.num}
@@ -670,39 +717,115 @@ export default function Home() {
                 ) : jobs.length === 0 ? (
                   <div style={{ textAlign: 'center', padding: 40, color: '#6b7785', fontSize: 13 }}>No jobs in queue yet.</div>
                 ) : (
-                  jobs.map((job) => {
-                    const existingDraft = draftsByHash[job.hash]
-                    const hasDraft = !!existingDraft
-                    const genState = hasDraft ? 'done' as GenState : (generating[job.hash] ?? 'idle')
+                  <>
+                  {jobs.map((job) => {
+                    const application = job.application ?? null
+                    const cardState = getCardState(application)
+                    const isApplied = !!(application && (APPLIED_STATUSES as readonly string[]).includes(application.status))
+                    const isDraftLike = !!(application && (ACTIVE_DRAFT_STATUSES as readonly string[]).includes(application.status))
                     const role = job.classified_role?.toUpperCase() ?? 'DA'
                     const roleColor = ROLE_COLORS[role] ?? '#6c9bcd'
                     const isActive = job.queued || (Date.now() - new Date(job.first_seen).getTime()) < 7 * 24 * 60 * 60 * 1000
-                    const draftStatus = existingDraft?.status
+                    const genState = isDraftLike ? 'done' as GenState : (generating[job.hash] ?? 'idle')
+
+                    const cardStyle: CSSProperties = {
+                      background: isDraftLike ? '#f8fbff' : 'white',
+                      borderRadius: 16,
+                      padding: isApplied ? '14px 14px 14px 11px' : 14,
+                      marginBottom: 10,
+                      border: `1px solid ${isDraftLike ? '#b4cde7' : '#e8eef5'}`,
+                      ...(isApplied ? { borderLeft: '3px solid #1a8b5f' } : {}),
+                      opacity: isApplied ? 0.92 : 1,
+                    }
+
+                    const statusBadge = (() => {
+                      if (cardState === 'idle') return null
+                      const config = isApplied
+                        ? { bg: '#e6f7ef', color: '#1a8b5f', text: `✓ Applied · ${timeAgo(application!.submitted_at ?? application!.created_at)}` }
+                        : cardState === 'docs_copied'
+                          ? { bg: '#e8f0fe', color: '#4682bf', text: '✓ Docs ready' }
+                          : { bg: '#e8f0fe', color: '#4682bf', text: '✓ Draft ready' }
+                      return (
+                        <span style={{
+                          background: config.bg, color: config.color, fontSize: 10, fontWeight: 600,
+                          padding: '3px 8px', borderRadius: 6,
+                        }}>{config.text}</span>
+                      )
+                    })()
+
+                    const rightButton = (() => {
+                      if (cardState === 'idle') {
+                        return (
+                          <button
+                            type="button"
+                            onClick={() => handleGenerate(job.hash)}
+                            disabled={genState !== 'idle'}
+                            style={{
+                              flex: 1, padding: 9, borderRadius: 8, fontSize: 12, fontWeight: 600,
+                              border: 'none', textAlign: 'center', cursor: genState === 'idle' ? 'pointer' : 'default',
+                              background: genState === 'idle' ? '#b4cde7'
+                                : genState === 'error' ? '#c0392b'
+                                : '#1e3a5f',
+                              color: genState === 'idle' ? '#4682bf' : 'white',
+                              opacity: genState === 'loading' ? 0.7 : 1,
+                            }}
+                          >
+                            {genState === 'idle' ? 'Generate resume'
+                              : genState === 'loading' ? 'Generating...'
+                              : genState === 'error' ? '✗ Failed'
+                              : '✓ Resume Generated'}
+                          </button>
+                        )
+                      }
+                      if (cardState === 'docs_copied' && application?.doc_url) {
+                        return (
+                          <a href={application.doc_url} target="_blank" rel="noopener noreferrer" style={{
+                            flex: 1, padding: 9, borderRadius: 8, fontSize: 12, fontWeight: 600,
+                            textAlign: 'center', background: '#1e3a5f', color: 'white',
+                            textDecoration: 'none', display: 'block',
+                          }}>Open doc →</a>
+                        )
+                      }
+                      if (isDraftLike) {
+                        return (
+                          <button
+                            type="button"
+                            onClick={() => setActiveTab('drafts')}
+                            style={{
+                              flex: 1, padding: 9, borderRadius: 8, fontSize: 12, fontWeight: 600,
+                              border: 'none', cursor: 'pointer', textAlign: 'center',
+                              background: '#1e3a5f', color: 'white',
+                            }}
+                          >View draft →</button>
+                        )
+                      }
+                      return (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPipelineScrollTarget(application!.id)
+                            setActiveTab('pipeline')
+                          }}
+                          style={{
+                            flex: 1, padding: 9, borderRadius: 8, fontSize: 12, fontWeight: 600,
+                            border: 'none', cursor: 'pointer', textAlign: 'center',
+                            background: '#1a8b5f', color: 'white',
+                          }}
+                        >View in pipeline →</button>
+                      )
+                    })()
 
                     return (
-                      <div key={job.hash} style={{
-                        background: hasDraft ? '#f8fbff' : 'white', borderRadius: 16, padding: 14,
-                        marginBottom: 10, border: `1px solid ${hasDraft ? '#b4cde7' : '#e8eef5'}`,
-                      }}>
+                      <div key={job.hash} style={cardStyle}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
-                          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                          <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
                             <span style={{
                               background: '#d9e6f3', color: '#1a4a7c', fontSize: 11,
                               fontWeight: 600, padding: '4px 9px', borderRadius: 6, fontVariantNumeric: 'tabular-nums',
                             }}>
                               {job.score != null ? `${job.score} · fit` : 'Unscored'}
                             </span>
-                            {hasDraft && (
-                              <span style={{
-                                background: draftStatus === 'submitted' ? '#e6f7ef' : '#e8f0fe',
-                                color: draftStatus === 'submitted' ? '#1a8b5f' : '#4682bf',
-                                fontSize: 10, fontWeight: 600, padding: '3px 8px', borderRadius: 6,
-                              }}>
-                                {draftStatus === 'submitted' ? '✓ Applied'
-                                  : draftStatus === 'docs_copied' ? '✓ Docs ready'
-                                  : '✓ Draft ready'}
-                              </span>
-                            )}
+                            {statusBadge}
                           </div>
                           <span style={{
                             fontSize: 10, fontWeight: 600, padding: '3px 8px', borderRadius: 5,
@@ -722,7 +845,7 @@ export default function Home() {
                         <div style={{ display: 'flex', gap: 8, fontSize: 11.5, color: '#6b7785', marginBottom: 12, alignItems: 'center', flexWrap: 'wrap' }}>
                           <span>{job.location ?? 'Location TBC'}</span>
                           <span style={{ width: 3, height: 3, background: '#b4cde7', borderRadius: '50%', display: 'inline-block' }} />
-                          {isActive ? (
+                          {isActive && !isApplied ? (
                             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: '#1a8b5f', fontWeight: 500 }}>
                               <span style={{ width: 6, height: 6, background: '#1a8b5f', borderRadius: '50%', boxShadow: '0 0 0 2px rgba(26,139,95,0.2)', display: 'inline-block' }} />
                               Active
@@ -740,41 +863,31 @@ export default function Home() {
                           }}>
                             Preview JD
                           </a>
-                          {hasDraft ? (
-                            <button
-                              onClick={() => setActiveTab('drafts')}
-                              style={{
-                                flex: 1, padding: 9, borderRadius: 8, fontSize: 12, fontWeight: 600,
-                                border: 'none', cursor: 'pointer', textAlign: 'center',
-                                background: '#1e3a5f', color: 'white',
-                              }}
-                            >
-                              View Draft →
-                            </button>
-                          ) : (
-                            <button
-                              onClick={() => handleGenerate(job.hash)}
-                              disabled={genState !== 'idle'}
-                              style={{
-                                flex: 1, padding: 9, borderRadius: 8, fontSize: 12, fontWeight: 600,
-                                border: 'none', textAlign: 'center',
-                                cursor: genState === 'idle' ? 'pointer' : 'default',
-                                background: genState === 'done' ? '#1e3a5f' : genState === 'error' ? '#c0392b' : '#b4cde7',
-                                color: genState === 'done' || genState === 'error' ? 'white' : '#4682bf',
-                                opacity: genState === 'loading' ? 0.7 : 1,
-                                transition: 'background 0.18s, color 0.18s',
-                              }}
-                            >
-                              {genState === 'loading' ? 'Generating...'
-                                : genState === 'done' ? '✓ Resume Generated'
-                                : genState === 'error' ? '✗ Failed'
-                                : 'Generate resume'}
-                            </button>
-                          )}
+                          {rightButton}
                         </div>
                       </div>
                     )
-                  })
+                  })}
+                  {rankedTotalCount > 5 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSearchScoreGte(80)
+                        setSearchExcludeStatus('rejected,withdrawn')
+                        setSearchSort('score')
+                        setActiveTab('search')
+                      }}
+                      style={{
+                        width: '100%', textAlign: 'center', padding: 8,
+                        fontSize: 12, color: '#4682bf', fontWeight: 500,
+                        background: '#f0f5fa', borderRadius: 8, border: 'none',
+                        cursor: 'pointer', marginTop: 4,
+                      }}
+                    >
+                      Show all {rankedTotalCount} in Search →
+                    </button>
+                  )}
+                  </>
                 )}
               </div>
 
@@ -1114,10 +1227,14 @@ export default function Home() {
                   const job = app.seen_jobs
                   const isEditingNote = editingNotes[app.id] !== undefined
                   return (
-                    <div key={app.id} style={{
-                      background: 'white', borderRadius: 14, padding: 14,
-                      marginBottom: 10, border: '1px solid #e8eef5',
-                    }}>
+                    <div
+                      id={`pipeline-row-${app.id}`}
+                      key={app.id}
+                      style={{
+                        background: 'white', borderRadius: 14, padding: 14,
+                        marginBottom: 10, border: '1px solid #e8eef5',
+                      }}
+                    >
                       {/* Row 1: Company + Status */}
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                         <div style={{ fontSize: 14, fontWeight: 600, color: '#1a2332', flex: 1 }}>
@@ -1333,16 +1450,17 @@ export default function Home() {
               ) : (
                 <>
                   {searchJobs.map(job => {
-                    const existingDraft = draftsByHash[job.hash]
-                    const hasDraft = !!existingDraft
-                    const genState = hasDraft ? 'done' as GenState : (generating[job.hash] ?? 'idle')
+                    const application = job.application ?? null
+                    const cardState = getCardState(application)
+                    const isApplied = !!(application && (APPLIED_STATUSES as readonly string[]).includes(application.status))
+                    const isDraftLike = !!(application && (ACTIVE_DRAFT_STATUSES as readonly string[]).includes(application.status))
+                    const genState = isDraftLike ? 'done' as GenState : (generating[job.hash] ?? 'idle')
                     const role = job.classified_role?.toUpperCase() ?? 'DA'
-                    const draftStatus = existingDraft?.status
 
                     return (
                       <div key={job.hash} style={{
-                        background: hasDraft ? '#f8fbff' : 'white', borderRadius: 16, padding: 14,
-                        marginBottom: 10, border: `1px solid ${hasDraft ? '#b4cde7' : '#e8eef5'}`,
+                        background: isDraftLike || isApplied ? '#f8fbff' : 'white', borderRadius: 16, padding: 14,
+                        marginBottom: 10, border: `1px solid ${isDraftLike || isApplied ? '#b4cde7' : '#e8eef5'}`,
                       }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
                           <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -1351,14 +1469,14 @@ export default function Home() {
                                 {job.score} fit
                               </span>
                             )}
-                            {hasDraft && (
+                            {cardState !== 'idle' && (
                               <span style={{
-                                background: draftStatus === 'submitted' ? '#e6f7ef' : '#e8f0fe',
-                                color: draftStatus === 'submitted' ? '#1a8b5f' : '#4682bf',
+                                background: isApplied ? '#e6f7ef' : '#e8f0fe',
+                                color: isApplied ? '#1a8b5f' : '#4682bf',
                                 fontSize: 10, fontWeight: 600, padding: '3px 8px', borderRadius: 6,
                               }}>
-                                {draftStatus === 'submitted' ? '✓ Applied'
-                                  : draftStatus === 'docs_copied' ? '✓ Docs ready'
+                                {isApplied ? `✓ Applied · ${timeAgo(application!.submitted_at ?? application!.created_at)}`
+                                  : cardState === 'docs_copied' ? '✓ Docs ready'
                                   : '✓ Draft ready'}
                               </span>
                             )}
@@ -1399,19 +1517,9 @@ export default function Home() {
                           }}>
                             Preview JD
                           </a>
-                          {hasDraft ? (
+                          {cardState === 'idle' ? (
                             <button
-                              onClick={() => setActiveTab('drafts')}
-                              style={{
-                                flex: 1, padding: 9, borderRadius: 8, fontSize: 12, fontWeight: 600,
-                                border: 'none', cursor: 'pointer', textAlign: 'center',
-                                background: '#1e3a5f', color: 'white',
-                              }}
-                            >
-                              View Draft →
-                            </button>
-                          ) : (
-                            <button
+                              type="button"
                               onClick={() => handleGenerate(job.hash)}
                               disabled={genState !== 'idle'}
                               style={{
@@ -1427,6 +1535,39 @@ export default function Home() {
                                 : genState === 'done' ? '✓ Resume Generated'
                                 : genState === 'error' ? '✗ Failed'
                                 : 'Generate resume'}
+                            </button>
+                          ) : cardState === 'docs_copied' && application?.doc_url ? (
+                            <a href={application.doc_url} target="_blank" rel="noopener noreferrer" style={{
+                              flex: 1, padding: 9, borderRadius: 8, fontSize: 12, fontWeight: 600,
+                              textAlign: 'center', background: '#1e3a5f', color: 'white',
+                              textDecoration: 'none', display: 'block',
+                            }}>Open doc →</a>
+                          ) : isDraftLike ? (
+                            <button
+                              type="button"
+                              onClick={() => setActiveTab('drafts')}
+                              style={{
+                                flex: 1, padding: 9, borderRadius: 8, fontSize: 12, fontWeight: 600,
+                                border: 'none', cursor: 'pointer', textAlign: 'center',
+                                background: '#1e3a5f', color: 'white',
+                              }}
+                            >
+                              View draft →
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setPipelineScrollTarget(application!.id)
+                                setActiveTab('pipeline')
+                              }}
+                              style={{
+                                flex: 1, padding: 9, borderRadius: 8, fontSize: 12, fontWeight: 600,
+                                border: 'none', cursor: 'pointer', textAlign: 'center',
+                                background: '#1a8b5f', color: 'white',
+                              }}
+                            >
+                              View in pipeline →
                             </button>
                           )}
                         </div>
@@ -1476,7 +1617,7 @@ export default function Home() {
                   </div>
                   <div>
                     <div style={{ fontSize: 16, fontWeight: 600, color: '#1a2332' }}>Gayoung Dan (Ina)</div>
-                    <div style={{ fontSize: 12, color: '#6b7785' }}>Master of Data Science — Monash University</div>
+                    <div style={{ fontSize: 12, color: '#6b7785' }}>Fortuna mihi favet</div>
                   </div>
                 </div>
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -1600,7 +1741,8 @@ export default function Home() {
         {/* ─── Tab Bar ─── */}
         <div style={{
           display: 'flex', background: 'white', borderTop: '1px solid #e8eef5',
-          padding: '10px 12px 28px', justifyContent: 'space-around',
+          padding: '10px 12px calc(env(safe-area-inset-bottom, 20px) + 8px)',
+          justifyContent: 'space-around',
           position: 'fixed', bottom: 0, left: '50%', transform: 'translateX(-50%)',
           width: '100%', maxWidth: 430, zIndex: 100,
         }}>
