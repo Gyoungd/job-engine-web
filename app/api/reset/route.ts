@@ -23,13 +23,6 @@ export async function POST() {
       if (delErr) throw new Error(`Delete apps: ${delErr.message}`)
     }
 
-    const { error: scoreErr } = await supabaseAdmin
-      .from('seen_jobs')
-      .update({ score: null, queued: 0 })
-      .gte('first_seen', '2000-01-01')
-
-    if (scoreErr) throw new Error(`Clear scores: ${scoreErr.message}`)
-
     let sheetsCleared = false
     if (SHEET_ID) {
       try {
@@ -46,9 +39,9 @@ export async function POST() {
 
     return NextResponse.json({
       deleted_applications: total,
-      scores_cleared: true,
+      scores_cleared: false,
       sheets_cleared: sheetsCleared,
-      message: 'Reset complete. Google Drive docs must be deleted manually.',
+      message: 'Reset complete (applications only). Google Drive docs must be deleted manually.',
     })
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'Unknown error'
