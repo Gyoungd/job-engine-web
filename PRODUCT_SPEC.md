@@ -1,8 +1,8 @@
 # Job Engine — Product Specification
 
-> **Last Updated:** 2026-05-04
+> **Last Updated:** 2026-05-05
 > **Owner:** Gayoung Dan (Ina)
-> **Status:** Active Development — Phase 5 ✅ COMPLETE, Phase 5.1 PWA 🟡 PARTIAL
+> **Status:** Active Development — Phase 5 ✅ COMPLETE, Phase 5.1 PWA 🟡 PARTIAL, Phase 5.3 ✅ COMPLETE
 > **Repository:** [https://github.com/Gyoungd/job-engine-web](https://github.com/Gyoungd/job-engine-web)
 > **Production URL:** [https://job-engine-web.vercel.app](https://job-engine-web.vercel.app)
 
@@ -106,6 +106,8 @@ seen_jobs           Job listings collected from sources
   - posted_at_source  TEXT — source of posted_at ('api' | 'estimated_from_alert' | 'unknown')
   - score             INTEGER — Haiku ranking output (NULL if unscored)
   - score_reasoning   TEXT — Haiku rationale
+  - is_expired        BOOLEAN NOT NULL DEFAULT FALSE — user-marked or auto-filtered stale flag
+  - expired_at        TIMESTAMPTZ — timestamp when user marked expired (NULL if not expired)
 
 applications        Resume drafts and submission tracking
   - id (UUID PK), jd_hash (FK → seen_jobs.hash)
@@ -166,8 +168,10 @@ Each tab section maps UI components to API endpoints, with implementation status
 | **Top picks card — applied state**     | Score + ✓ Applied · {relative time} badge + 3px green left strip + View in pipeline → (→ Pipeline tab, scrolls to row)                                      | inline                                                                                            | ✅      |
 | **Show all link**                      | When ranked result count > 5, show "Show all N in Search →" footer link → routes to Search tab with `score_gte=80&exclude_status=rejected,withdrawn` preset | inline                                                                                            | ✅      |
 | Preview JD button                      | Open JD URL in new tab                                                                                                                                      | External link                                                                                     | ✅      |
+| **Expired button (idle state only)**   | Mark job as expired — hides from queue immediately (optimistic UI); blocked if application exists (409)                                                     | `PATCH /api/jobs/:hash/expire`                                                                    | ✅      |
 | Generate resume button                 | Trigger Sonnet resume tailoring (idle state only)                                                                                                           | `POST /api/generate-resume`                                                                       | ✅      |
 | Drafts ready section                   | Show pending drafts (max 3)                                                                                                                                 | `GET /api/applications?status=draft,docs_copied&limit=3`                                          | ✅      |
+| **Withdraw button (drafts section)**   | Withdraw a draft from Home mini-card without navigating to Pipeline                                                                                         | `PATCH /api/applications/:id` (`status='withdrawn'`)                                              | ✅      |
 | Pipeline card                          | Submitted / Pending / Response counts                                                                                                                       | `GET /api/applications/summary`                                                                   | ✅      |
 
 
@@ -201,6 +205,7 @@ Each tab section maps UI components to API endpoints, with implementation status
 | Sort dropdown           | Newest / Oldest / Score desc                   | `GET /api/queue?sort=`            | ✅      |
 | Result list (paginated) | Job cards with same layout as Home top picks   | `GET /api/queue?limit=20&offset=` | ✅      |
 | Generate resume button  | Same as Home tab                               | `POST /api/generate-resume`       | ✅      |
+| **Expired button (idle state only)** | Same as Home tab — mark job expired, hide immediately | `PATCH /api/jobs/:hash/expire` | ✅      |
 | Sticky header           | 검색 + 필터 + 정렬 고정, 결과 리스트만 스크롤                   | CSS `position: sticky`            | ✅      |
 
 
@@ -219,6 +224,7 @@ Each tab section maps UI components to API endpoints, with implementation status
 | Generate Docs button   | Copy base resume → Trimmed folder; becomes "Open Resume" after | `POST /api/docs/copy-base`            | ✅      |
 | Open Resume button     | Opens created Google Doc (replaces Generate Docs after copy)   | External link                         | ✅      |
 | Mark applied button    | Update status to submitted + sync to Sheets                    | `POST /api/applications/mark-applied` | ✅      |
+| **Withdraw button**    | Set status = withdrawn in one click (draft/docs_copied only); removes from Drafts view; hides from Home Top Picks via existing `exclude_status=withdrawn` | `PATCH /api/applications/:id` | ✅      |
 
 
 **User flow:**
@@ -228,6 +234,7 @@ Each tab section maps UI components to API endpoints, with implementation status
 3. User opens new Google Doc → manually applies resume-changes → exports PDF
 4. User submits to employer → returns to app → clicks Mark applied
 5. App updates Supabase + Google Sheets row
+6. (Alt) User decides not to apply → clicks Withdraw → draft removed from view, job hidden from Top Picks
 
 ---
 
@@ -295,6 +302,12 @@ Complete API surface with implementation status.
 | GET    | `/api/queue`       | Paginated job list with filters + optional application join | ✅      |
 
 
+**GET `/api/queue` — always-on filters (Phase 5.3):**
+
+All queue responses permanently exclude:
+- `is_expired = TRUE` — user-marked expired jobs
+- `COALESCE(posted_at, first_seen) < NOW() - 14 days` — stale job auto-filter (14-day threshold; `posted_at` preferred, `first_seen` as fallback when `posted_at IS NULL`)
+
 **GET `/api/queue` — Phase 5.2 query params:**
 
 - `include_application=true` — loads `applications` for matching `jd_hash` values (secondary query + merge; latest row by `created_at`). Response includes `application: { id, status, doc_url, submitted_at, created_at } | null`.
@@ -326,16 +339,24 @@ Complete API surface with implementation status.
 | POST   | `/api/docs/apply-changes` | Auto-apply resume-changes to doc   | 💤 (Phase B) |
 
 
+### Job management
+
+
+| Method | Path                    | Purpose                                                                                              | Status |
+| ------ | ----------------------- | ---------------------------------------------------------------------------------------------------- | ------ |
+| PATCH  | `/api/jobs/:hash/expire` | Mark job as expired (`is_expired=true`, `expired_at=now()`). Returns 409 if application exists for this job. | ✅      |
+
+
 ### Application management
 
 
-| Method | Path                             | Purpose                            | Status |
-| ------ | -------------------------------- | ---------------------------------- | ------ |
-| GET    | `/api/applications`              | List all applications with filters | ✅      |
-| GET    | `/api/applications/summary`      | Pipeline counts                    | ✅      |
-| GET    | `/api/applications/:id`          | Single application detail          | ✅      |
-| PATCH  | `/api/applications/:id`          | Update status / notes / response   | ✅      |
-| POST   | `/api/applications/mark-applied` | Mark submitted + sync Sheets       | ✅      |
+| Method | Path                             | Purpose                                                                  | Status |
+| ------ | -------------------------------- | ------------------------------------------------------------------------ | ------ |
+| GET    | `/api/applications`              | List all applications with filters                                       | ✅      |
+| GET    | `/api/applications/summary`      | Pipeline counts                                                          | ✅      |
+| GET    | `/api/applications/:id`          | Single application detail                                                | ✅      |
+| PATCH  | `/api/applications/:id`          | Update status / notes / response; `status='withdrawn'` used for 1-click Withdraw from Drafts | ✅      |
+| POST   | `/api/applications/mark-applied` | Mark submitted + sync Sheets                                             | ✅      |
 
 
 ### Collection monitoring
@@ -683,6 +704,58 @@ Day 6:  End-to-end test: let cron run for 24h → verify Profile tab numbers mat
 
 ---
 
+### Phase 5.3 — Stale Job Handling ✅ COMPLETE
+
+**Goal:** Prevent expired/closed job postings from surfacing in Top Picks and Search — both via automatic age-based filtering and user-initiated marking.
+
+**Background:** SME job postings often close within 2–14 days. Without filtering, users encounter postings that no longer accept applications, causing wasted resume generation. Hard URL health checks (LinkedIn, Seek) were ruled out due to LinkedIn authentication walls making automated detection unreliable (~0% signal for LinkedIn jobs).
+
+**Implemented:**
+
+1. **DB migration** (`scripts/migrations/002_add_is_expired.sql`)
+   - `is_expired BOOLEAN NOT NULL DEFAULT FALSE`
+   - `expired_at TIMESTAMPTZ`
+   - Index: `idx_is_expired ON seen_jobs(is_expired) WHERE is_expired = FALSE`
+
+2. **14-day auto-filter on `GET /api/queue`**
+   - Filter: `COALESCE(posted_at, first_seen) >= NOW() - INTERVAL '14 days'`
+   - Rationale: 14 days covers 90%+ of SME postings still open; `posted_at` preferred, `first_seen` as fallback for `posted_at IS NULL` rows
+   - Affects all queue consumers (Home Top Picks, Search tab) — Pipeline/Drafts tabs use `applications` endpoint, unaffected
+
+3. **`PATCH /api/jobs/:hash/expire`** (new endpoint)
+   - Sets `is_expired=true`, `expired_at=now()`
+   - Guard: returns 409 if any `applications` row exists for the job (prevents expiring jobs already in pipeline)
+
+4. **"Expired" button — Home Top Picks + Search tab**
+   - Visible only when `cardState === 'idle'` (no application exists yet)
+   - Optimistic UI: card hides immediately on click; reverts if API call fails
+   - Style: muted terracotta (`#fdf2f0` / `#b05c4a`) to signal destructive-but-recoverable action
+
+5. **"Withdraw" button — Drafts tab + Home Drafts Ready section**
+   - Visible for `status === 'draft'` or `status === 'docs_copied'` only (not for submitted/pipeline statuses)
+   - Calls existing `PATCH /api/applications/:id` with `{ status: 'withdrawn' }` — no new API required
+   - Optimistic UI: removes card from Drafts list immediately (`setDrafts(prev => prev.filter(...))`)
+   - Effect: withdrawn jobs are auto-excluded from Home Top Picks (existing `exclude_status=rejected,withdrawn` query param)
+   - Recoverable: status can be changed back in Pipeline tab
+
+**Design decisions:**
+
+- 14 days chosen over 7 days (too aggressive) or 30 days (too loose for SME targeting); threshold based on SME posting lifecycle data
+- Withdraw vs hard-delete: Withdraw (`status='withdrawn'`) preferred — no new API endpoint, reversible, application history preserved, job excluded from Home Top Picks automatically
+- Expire button blocked when application exists: prevents data inconsistency (application in Drafts/Pipeline for a job marked expired)
+
+**Acceptance criteria:**
+
+- Jobs older than 14 days (by `posted_at` or `first_seen`) do not appear in Home Top Picks or Search results
+- Jobs with `is_expired=true` do not appear in any queue view
+- "Expired" button hidden if job already has an application (`cardState !== 'idle'`)
+- "Expired" button API call with existing application returns 409 (server-side guard)
+- "Withdraw" button on Drafts card sets status to withdrawn and card disappears immediately
+- Withdrawn job no longer appears in Home Top Picks (excluded by `exclude_status=withdrawn`)
+- Drafts/Pipeline tab entries for previously-submitted jobs are unaffected by 14-day filter
+
+---
+
 ### Phase 5.1 — PWA (Progressive Web App) 🟡 PARTIAL
 
 **PWA installability (홈 화면 앱):** ✅ COMPLETE
@@ -915,5 +988,6 @@ View in pipeline button:
 | 2026-05-04 | Phase 5 UX     | Pipeline: response_status 자동 매핑, 자동 Sheets full sync, sticky header; Search: sticky header; Sheets sync 범위 확장 + Response 컬럼; status 추가 (sent_cold, online_test); .env.local SA JSON 수정; Phase 5 ✅ COMPLETE                       |
 | 2026-05-04 | Phase 5.1 PWA  | manifest.ts, icon.tsx, apple-icon.tsx, iOS standalone 메타태그, safe area inset 적용 — 홈 화면 앱 설치 가능                                                                                                                                    |
 | 2026-05-04 | Phase 5.2      | Top picks: limit 5, application merge API, applied → Pipeline scroll+highlight, Open doc for docs_copied, Search `include_application` + preset footer; `/api/queue` params `include_application`, `exclude_status`, `score_gte` |
+| 2026-05-05 | Phase 5.3      | Stale job handling: 14-day auto-filter on queue API (`COALESCE(posted_at, first_seen)`), `is_expired` DB column + migration, `PATCH /api/jobs/:hash/expire`, "Expired" button (Home+Search, idle only, optimistic UI), "Withdraw" button (Drafts tab + Home Drafts Ready, draft/docs_copied only, optimistic UI) |
 
 

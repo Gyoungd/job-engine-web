@@ -272,6 +272,12 @@ export default function Home() {
   } | null>(null)
   const [profileLoading, setProfileLoading] = useState(false)
 
+  /* ─── Expire state (optimistic hide before server confirms) ─── */
+  const [expiredHashes, setExpiredHashes] = useState<Set<string>>(new Set())
+
+  /* ─── Withdraw draft state ─── */
+  const [withdrawingDraft, setWithdrawingDraft] = useState<Record<string, boolean>>({})
+
   /* ─── Pipeline state ─── */
   const [pipelineApps, setPipelineApps] = useState<Application[]>([])
   const [pipelineLoading, setPipelineLoading] = useState(false)
@@ -356,6 +362,40 @@ export default function Home() {
       }
     } catch {
       setGenerating(prev => ({ ...prev, [hash]: 'error' }))
+    }
+  }
+
+  /* ─── Mark job as expired ─── */
+  async function handleExpire(hash: string) {
+    setExpiredHashes(prev => new Set([...prev, hash]))
+    try {
+      const res = await fetch(`/api/jobs/${hash}/expire`, { method: 'PATCH' })
+      if (!res.ok) {
+        setExpiredHashes(prev => { const n = new Set(prev); n.delete(hash); return n })
+      }
+    } catch {
+      setExpiredHashes(prev => { const n = new Set(prev); n.delete(hash); return n })
+    }
+  }
+
+  /* ─── Withdraw draft without going through Pipeline ─── */
+  async function handleWithdrawDraft(id: string) {
+    if (withdrawingDraft[id]) return
+    setWithdrawingDraft(prev => ({ ...prev, [id]: true }))
+    try {
+      const res = await fetch(`/api/applications/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'withdrawn' }),
+      })
+      if (res.ok) {
+        setDrafts(prev => prev.filter(d => d.id !== id))
+        setHomeDrafts(prev => prev.filter(d => d.id !== id))
+      }
+    } catch {
+      // silently fail — draft stays visible
+    } finally {
+      setWithdrawingDraft(prev => ({ ...prev, [id]: false }))
     }
   }
 
@@ -718,7 +758,7 @@ export default function Home() {
                   <div style={{ textAlign: 'center', padding: 40, color: '#6b7785', fontSize: 13 }}>No jobs in queue yet.</div>
                 ) : (
                   <>
-                  {jobs.map((job) => {
+                  {jobs.filter(j => !expiredHashes.has(j.hash)).map((job) => {
                     const application = job.application ?? null
                     const cardState = getCardState(application)
                     const isApplied = !!(application && (APPLIED_STATUSES as readonly string[]).includes(application.status))
@@ -863,6 +903,19 @@ export default function Home() {
                           }}>
                             Preview JD
                           </a>
+                          {cardState === 'idle' && (
+                            <button
+                              type="button"
+                              onClick={() => handleExpire(job.hash)}
+                              style={{
+                                padding: '9px 10px', borderRadius: 8, fontSize: 11, fontWeight: 600,
+                                border: '1px solid #e2ccc8', cursor: 'pointer', textAlign: 'center',
+                                background: '#fdf2f0', color: '#b05c4a', whiteSpace: 'nowrap', flexShrink: 0,
+                              }}
+                            >
+                              Expired
+                            </button>
+                          )}
                           {rightButton}
                         </div>
                       </div>
@@ -937,6 +990,20 @@ export default function Home() {
                         >
                           View details
                         </button>
+                        {(draft.status === 'draft' || draft.status === 'docs_copied') && (
+                          <button
+                            onClick={() => handleWithdrawDraft(draft.id)}
+                            disabled={!!withdrawingDraft[draft.id]}
+                            style={{
+                              padding: '8px 10px', borderRadius: 8, fontSize: 11, fontWeight: 600,
+                              border: '1px solid #e2ccc8', cursor: withdrawingDraft[draft.id] ? 'default' : 'pointer',
+                              background: '#fdf2f0', color: '#b05c4a', whiteSpace: 'nowrap', flexShrink: 0,
+                              opacity: withdrawingDraft[draft.id] ? 0.6 : 1,
+                            }}
+                          >
+                            {withdrawingDraft[draft.id] ? '...' : 'Withdraw'}
+                          </button>
+                        )}
                       </div>
                     </div>
                   ))
@@ -1133,6 +1200,20 @@ export default function Home() {
                             }}
                           >
                             {markingApplied[draft.id] ? 'Submitting...' : 'Mark Applied'}
+                          </button>
+                        )}
+                        {(draft.status === 'draft' || draft.status === 'docs_copied') && (
+                          <button
+                            onClick={() => handleWithdrawDraft(draft.id)}
+                            disabled={!!withdrawingDraft[draft.id]}
+                            style={{
+                              padding: '9px 10px', borderRadius: 8, fontSize: 11, fontWeight: 600,
+                              border: '1px solid #e2ccc8', cursor: withdrawingDraft[draft.id] ? 'default' : 'pointer',
+                              background: '#fdf2f0', color: '#b05c4a', whiteSpace: 'nowrap', flexShrink: 0,
+                              opacity: withdrawingDraft[draft.id] ? 0.6 : 1,
+                            }}
+                          >
+                            {withdrawingDraft[draft.id] ? '...' : 'Withdraw'}
                           </button>
                         )}
                       </div>
@@ -1449,7 +1530,7 @@ export default function Home() {
                 </div>
               ) : (
                 <>
-                  {searchJobs.map(job => {
+                  {searchJobs.filter(j => !expiredHashes.has(j.hash)).map(job => {
                     const application = job.application ?? null
                     const cardState = getCardState(application)
                     const isApplied = !!(application && (APPLIED_STATUSES as readonly string[]).includes(application.status))
@@ -1517,6 +1598,19 @@ export default function Home() {
                           }}>
                             Preview JD
                           </a>
+                          {cardState === 'idle' && (
+                            <button
+                              type="button"
+                              onClick={() => handleExpire(job.hash)}
+                              style={{
+                                padding: '9px 10px', borderRadius: 8, fontSize: 11, fontWeight: 600,
+                                border: '1px solid #e2ccc8', cursor: 'pointer', textAlign: 'center',
+                                background: '#fdf2f0', color: '#b05c4a', whiteSpace: 'nowrap', flexShrink: 0,
+                              }}
+                            >
+                              Expired
+                            </button>
+                          )}
                           {cardState === 'idle' ? (
                             <button
                               type="button"

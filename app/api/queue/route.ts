@@ -72,6 +72,11 @@ function applySeenJobFilters(q: any, opts: {
   if (opts.scoreGte != null && !Number.isNaN(opts.scoreGte)) {
     query = query.gte('score', opts.scoreGte)
   }
+  // Hide manually expired jobs
+  query = query.eq('is_expired', false)
+  // 14-day stale filter: use posted_at if present, else fall back to first_seen
+  const cutoff = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString()
+  query = query.or(`posted_at.gte.${cutoff},and(posted_at.is.null,first_seen.gte.${cutoff})`)
   return query
 }
 
