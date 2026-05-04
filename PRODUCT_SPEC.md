@@ -161,11 +161,11 @@ Each tab section maps UI components to API endpoints, with implementation status
 | Stats grid (4 cards)                   | Display Raw / New / Target / Top counts                                                                                                                     | `GET /api/queue/stats`                                                                            | ✅      |
 | Refresh queue button                   | Re-fetch latest counts                                                                                                                                      | `GET /api/queue/stats` + `GET /api/queue`                                                         | ✅      |
 | Generate top 10 button                 | Trigger Haiku scoring on unscored jobs                                                                                                                      | `POST /api/rank`                                                                                  | ✅      |
-| **Top picks list (max 5 cards)**       | Display ranked JDs with lifecycle-aware sorting                                                                                                             | `GET /api/queue?filter=ranked&limit=5&include_application=true&exclude_status=rejected,withdrawn` | ✅      |
-| **Top picks card — idle state**        | Score badge + Generate resume button                                                                                                                        | inline                                                                                            | ✅      |
-| **Top picks card — draft state**       | Score + ✓ Draft ready badge + View draft → (→ Drafts tab)                                                                                                   | inline                                                                                            | ✅      |
-| **Top picks card — docs_copied state** | Score + ✓ Docs ready badge + Open doc → (Google Doc)                                                                                                        | inline                                                                                            | ✅      |
-| **Top picks card — applied state**     | Score + ✓ Applied · {relative time} badge + 3px green left strip + View in pipeline → (→ Pipeline tab, scrolls to row)                                      | inline                                                                                            | ✅      |
+| **New Jobs list (max 5 cards)**        | Display ranked JDs (last 14 days by `first_seen`) with lifecycle-aware sorting                                                                              | `GET /api/queue?filter=ranked&limit=5&include_application=true&exclude_status=rejected,withdrawn&max_age_days=14` | ✅      |
+| **New Jobs card — idle state**         | Score badge + Expired button (gray) + Generate resume button                                                                                                | inline                                                                                            | ✅      |
+| **New Jobs card — draft state**        | Score + ✓ Draft ready badge + View draft → (→ Drafts tab)                                                                                                   | inline                                                                                            | ✅      |
+| **New Jobs card — docs_copied state**  | Score + ✓ Docs ready badge + Open doc → (Google Doc)                                                                                                        | inline                                                                                            | ✅      |
+| **New Jobs card — applied state**      | Score + ✓ Applied · {relative time} badge + 3px green left strip + View in pipeline → (→ Pipeline tab, scrolls to row)                                      | inline                                                                                            | ✅      |
 | **Show all link**                      | When ranked result count > 5, show "Show all N in Search →" footer link → routes to Search tab with `score_gte=80&exclude_status=rejected,withdrawn` preset | inline                                                                                            | ✅      |
 | Preview JD button                      | Open JD URL in new tab                                                                                                                                      | External link                                                                                     | ✅      |
 | **Expired button (idle state only)**   | Mark job as expired — hides from queue immediately (optimistic UI); blocked if application exists (409)                                                     | `PATCH /api/jobs/:hash/expire`                                                                    | ✅      |
@@ -175,19 +175,22 @@ Each tab section maps UI components to API endpoints, with implementation status
 | Pipeline card                          | Submitted / Pending / Response counts                                                                                                                       | `GET /api/applications/summary`                                                                   | ✅      |
 
 
-**Top picks sort order (server-side):**
+**New Jobs sort order (server-side):**
 
 1. `application.status_priority DESC` — where active states (`null`, `draft`, `docs_copied`) get priority 1, applied states get priority 0
 2. `score DESC` (NULLS LAST)
 3. `first_seen DESC` (tiebreaker)
 
+**New Jobs filter:** `max_age_days=14` — only shows jobs with `first_seen >= NOW() - 14 days`. Search tab has no age filter (shows all non-expired jobs).
+
 **User flow:**
 
-1. User opens app → Top picks loads up to 5 cards: active (no application or in-progress draft) at top, applied at bottom.
-2. User reviews active cards → clicks Generate resume on chosen JD → card transitions to draft state.
-3. User clicks View draft → on draft card → Drafts tab opens.
-4. After submitting via Pipeline, user returns to Home → applied card stays visible at bottom of Top picks with green strip + "✓ Applied · 2h ago" — confirms today's progress at a glance.
-5. User scrolls past applied cards → clicks "Show all N in Search →" footer link → Search tab opens with score and exclude_status filters preset.
+1. User opens app → New Jobs loads up to 5 cards (last 14 days, ranked): active at top, applied at bottom.
+2. User reviews JD → if expired, clicks "Expired" button (gray) → card hides immediately.
+3. User clicks Generate resume on chosen JD → card transitions to draft state.
+4. User clicks View draft → on draft card → Drafts tab opens.
+5. After submitting via Pipeline, user returns to Home → applied card stays visible at bottom with green strip + "✓ Applied · 2h ago".
+6. User clicks "Show all N in Search →" footer link → Search tab opens with score and exclude_status filters preset (no age filter).
 
 ---
 
@@ -306,7 +309,9 @@ Complete API surface with implementation status.
 
 All queue responses permanently exclude:
 - `is_expired = TRUE` — user-marked expired jobs
-- `COALESCE(posted_at, first_seen) < NOW() - 14 days` — stale job auto-filter (14-day threshold; `posted_at` preferred, `first_seen` as fallback when `posted_at IS NULL`)
+
+**Age filter (opt-in, not always-on):**
+- `max_age_days=14` — when passed, hides jobs with `first_seen < NOW() - N days`. Used by Home New Jobs section only. Search tab omits this param to show all non-expired jobs regardless of age.
 
 **GET `/api/queue` — Phase 5.2 query params:**
 
@@ -717,10 +722,11 @@ Day 6:  End-to-end test: let cron run for 24h → verify Profile tab numbers mat
    - `expired_at TIMESTAMPTZ`
    - Index: `idx_is_expired ON seen_jobs(is_expired) WHERE is_expired = FALSE`
 
-2. **14-day auto-filter on `GET /api/queue`**
-   - Filter: `COALESCE(posted_at, first_seen) >= NOW() - INTERVAL '14 days'`
-   - Rationale: 14 days covers 90%+ of SME postings still open; `posted_at` preferred, `first_seen` as fallback for `posted_at IS NULL` rows
-   - Affects all queue consumers (Home Top Picks, Search tab) — Pipeline/Drafts tabs use `applications` endpoint, unaffected
+2. **14-day age filter on Home New Jobs only (`max_age_days=14` param)**
+   - Filter: `first_seen >= NOW() - 14 days` (always-available column, no null-handling complexity)
+   - Applied only when `max_age_days` query param is passed — Home New Jobs passes it, Search tab does not
+   - Rationale: Search is exploratory (user wants to see all non-expired jobs); New Jobs is discovery-focused (only fresh roles worth acting on)
+   - Pipeline/Drafts tabs use `applications` endpoint, unaffected
 
 3. **`PATCH /api/jobs/:hash/expire`** (new endpoint)
    - Sets `is_expired=true`, `expired_at=now()`
@@ -988,6 +994,6 @@ View in pipeline button:
 | 2026-05-04 | Phase 5 UX     | Pipeline: response_status 자동 매핑, 자동 Sheets full sync, sticky header; Search: sticky header; Sheets sync 범위 확장 + Response 컬럼; status 추가 (sent_cold, online_test); .env.local SA JSON 수정; Phase 5 ✅ COMPLETE                       |
 | 2026-05-04 | Phase 5.1 PWA  | manifest.ts, icon.tsx, apple-icon.tsx, iOS standalone 메타태그, safe area inset 적용 — 홈 화면 앱 설치 가능                                                                                                                                    |
 | 2026-05-04 | Phase 5.2      | Top picks: limit 5, application merge API, applied → Pipeline scroll+highlight, Open doc for docs_copied, Search `include_application` + preset footer; `/api/queue` params `include_application`, `exclude_status`, `score_gte` |
-| 2026-05-05 | Phase 5.3      | Stale job handling: 14-day auto-filter on queue API (`COALESCE(posted_at, first_seen)`), `is_expired` DB column + migration, `PATCH /api/jobs/:hash/expire`, "Expired" button (Home+Search, idle only, optimistic UI), "Withdraw" button (Drafts tab + Home Drafts Ready, draft/docs_copied only, optimistic UI) |
+| 2026-05-05 | Phase 5.3      | Stale job handling: `is_expired` DB column + migration, `PATCH /api/jobs/:hash/expire`, 14-day filter via `max_age_days=14` param (Home New Jobs only; Search tab unfiltered), "Expired" button gray (Home+Search, idle only, optimistic UI), "Withdraw" button gray (Drafts tab + Home Drafts mini-card, draft/docs_copied only), rename "Top picks" → "New Jobs" |
 
 

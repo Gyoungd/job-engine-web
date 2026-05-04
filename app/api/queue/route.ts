@@ -72,11 +72,8 @@ function applySeenJobFilters(q: any, opts: {
   if (opts.scoreGte != null && !Number.isNaN(opts.scoreGte)) {
     query = query.gte('score', opts.scoreGte)
   }
-  // Hide manually expired jobs
+  // Hide manually expired jobs (always applied)
   query = query.eq('is_expired', false)
-  // 14-day stale filter: use posted_at if present, else fall back to first_seen
-  const cutoff = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString()
-  query = query.or(`posted_at.gte.${cutoff},and(posted_at.is.null,first_seen.gte.${cutoff})`)
   return query
 }
 
@@ -109,6 +106,8 @@ export async function GET(req: NextRequest) {
     const excludeStatus = sp.get('exclude_status') ?? ''
     const scoreGteParam = sp.get('score_gte')
     const scoreGte = scoreGteParam != null && scoreGteParam !== '' ? Number(scoreGteParam) : null
+    const maxAgeDaysParam = sp.get('max_age_days')
+    const maxAgeDays = maxAgeDaysParam != null && maxAgeDaysParam !== '' ? parseInt(maxAgeDaysParam) : null
 
     const excludeSet = new Set(
       excludeStatus.split(',').map(s => s.trim()).filter(Boolean),
@@ -116,11 +115,19 @@ export async function GET(req: NextRequest) {
 
     const filterOpts = { filter, role, region, source, search, scoreGte }
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    function applyAgeFilter(q: any) {
+      if (!maxAgeDays || isNaN(maxAgeDays)) return q
+      const cutoff = new Date(Date.now() - maxAgeDays * 24 * 60 * 60 * 1000).toISOString()
+      return q.gte('first_seen', cutoff)
+    }
+
     if (!includeApplication) {
       let q = applySeenJobFilters(
         supabaseAdmin.from('seen_jobs').select('*', { count: 'exact' }),
         filterOpts,
       )
+      q = applyAgeFilter(q)
       q = applySeenJobOrder(q, filter, sort)
       q = q.range(offset, offset + limit - 1)
       const { data, count, error } = await q
@@ -135,6 +142,7 @@ export async function GET(req: NextRequest) {
       supabaseAdmin.from('seen_jobs').select('*'),
       filterOpts,
     )
+    q = applyAgeFilter(q)
     q = applySeenJobOrder(q, filter, sort)
     q = q.limit(2000)
 

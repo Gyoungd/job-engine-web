@@ -293,7 +293,7 @@ export default function Home() {
       const [statsRes, jobsRes, summaryRes, draftsRes] = await Promise.all([
         fetch('/api/queue/stats').then(r => r.json()),
         fetch(
-          '/api/queue?filter=ranked&limit=5&include_application=true&exclude_status=rejected,withdrawn',
+          '/api/queue?filter=ranked&limit=5&include_application=true&exclude_status=rejected,withdrawn&max_age_days=14',
         ).then(r => r.json()),
         fetch('/api/applications/summary').then(r => r.json()),
         fetch('/api/applications?status=draft,docs_copied&limit=3').then(r => r.json()),
@@ -740,13 +740,13 @@ export default function Home() {
                 )}
               </div>
 
-              {/* Top Picks */}
+              {/* New Jobs */}
               <div style={{ padding: '0 20px 20px' }}>
                 <div style={{
                   fontSize: 17, fontWeight: 600, color: '#1a2332', margin: '8px 0 12px',
                   display: 'flex', justifyContent: 'space-between', alignItems: 'center', letterSpacing: -0.2,
                 }}>
-                  <span>Top picks</span>
+                  <span>New Jobs</span>
                   <span style={{ fontSize: 12, color: '#6b7785', fontWeight: 400, background: '#f0f5fa', padding: '3px 10px', borderRadius: 10 }}>
                     {jobs.length} listed
                   </span>
@@ -909,8 +909,8 @@ export default function Home() {
                               onClick={() => handleExpire(job.hash)}
                               style={{
                                 padding: '9px 10px', borderRadius: 8, fontSize: 11, fontWeight: 600,
-                                border: '1px solid #e2ccc8', cursor: 'pointer', textAlign: 'center',
-                                background: '#fdf2f0', color: '#b05c4a', whiteSpace: 'nowrap', flexShrink: 0,
+                                border: '1px solid #d4d8de', cursor: 'pointer', textAlign: 'center',
+                                background: '#f0f2f4', color: '#6b7785', whiteSpace: 'nowrap', flexShrink: 0,
                               }}
                             >
                               Expired
@@ -962,7 +962,7 @@ export default function Home() {
                     border: '1px solid #e8eef5', borderLeft: '3px solid #6c9bcd',
                     textAlign: 'center', color: '#6b7785', fontSize: 13,
                   }}>
-                    No drafts yet. Generate a resume from Top picks above.
+                    No drafts yet. Generate a resume from New Jobs above.
                   </div>
                 ) : (
                   homeDrafts.map(draft => (
@@ -996,8 +996,8 @@ export default function Home() {
                             disabled={!!withdrawingDraft[draft.id]}
                             style={{
                               padding: '8px 10px', borderRadius: 8, fontSize: 11, fontWeight: 600,
-                              border: '1px solid #e2ccc8', cursor: withdrawingDraft[draft.id] ? 'default' : 'pointer',
-                              background: '#fdf2f0', color: '#b05c4a', whiteSpace: 'nowrap', flexShrink: 0,
+                              border: '1px solid #d4d8de', cursor: withdrawingDraft[draft.id] ? 'default' : 'pointer',
+                              background: '#f0f2f4', color: '#6b7785', whiteSpace: 'nowrap', flexShrink: 0,
                               opacity: withdrawingDraft[draft.id] ? 0.6 : 1,
                             }}
                           >
@@ -1208,8 +1208,8 @@ export default function Home() {
                             disabled={!!withdrawingDraft[draft.id]}
                             style={{
                               padding: '9px 10px', borderRadius: 8, fontSize: 11, fontWeight: 600,
-                              border: '1px solid #e2ccc8', cursor: withdrawingDraft[draft.id] ? 'default' : 'pointer',
-                              background: '#fdf2f0', color: '#b05c4a', whiteSpace: 'nowrap', flexShrink: 0,
+                              border: '1px solid #d4d8de', cursor: withdrawingDraft[draft.id] ? 'default' : 'pointer',
+                              background: '#f0f2f4', color: '#6b7785', whiteSpace: 'nowrap', flexShrink: 0,
                               opacity: withdrawingDraft[draft.id] ? 0.6 : 1,
                             }}
                           >
@@ -1604,8 +1604,8 @@ export default function Home() {
                               onClick={() => handleExpire(job.hash)}
                               style={{
                                 padding: '9px 10px', borderRadius: 8, fontSize: 11, fontWeight: 600,
-                                border: '1px solid #e2ccc8', cursor: 'pointer', textAlign: 'center',
-                                background: '#fdf2f0', color: '#b05c4a', whiteSpace: 'nowrap', flexShrink: 0,
+                                border: '1px solid #d4d8de', cursor: 'pointer', textAlign: 'center',
+                                background: '#f0f2f4', color: '#6b7785', whiteSpace: 'nowrap', flexShrink: 0,
                               }}
                             >
                               Expired
