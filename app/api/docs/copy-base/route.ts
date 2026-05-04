@@ -1,33 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase/server'
-import { google } from 'googleapis'
-
-const BASE_DOCS: Record<string, string> = {
-  DA: process.env.GDOC_BASE_DA ?? '',
-  DS: process.env.GDOC_BASE_DS ?? '',
-  DE: process.env.GDOC_BASE_DE ?? '',
-}
-
-const TRIMMED_FOLDER_ID = process.env.GDRIVE_TRIMMED_FOLDER_ID ?? ''
-
-function getUserDrive() {
-  const tokenJson = process.env.GMAIL_TOKEN_JSON
-  const credJson = process.env.GMAIL_CREDENTIALS_JSON
-  if (!tokenJson || !credJson) throw new Error('Gmail OAuth env vars not set')
-
-  const token = JSON.parse(tokenJson)
-  const cred = JSON.parse(credJson)
-  const { client_id, client_secret } = cred.installed
-
-  const oauth2 = new google.auth.OAuth2(client_id, client_secret)
-  oauth2.setCredentials({
-    access_token: token.token,
-    refresh_token: token.refresh_token,
-    token_type: 'Bearer',
-  })
-
-  return google.drive({ version: 'v3', auth: oauth2 })
-}
+import { getDrive, BASE_DOCS, TRIMMED_FOLDER_ID } from '@/lib/google'
 
 export async function POST(req: NextRequest) {
   try {
@@ -69,7 +42,7 @@ export async function POST(req: NextRequest) {
     const companyClean = company.replace(/[^\w\s가-힣-]/g, '').trim()
     const fileName = `Gayoung Dan_Resume_${companyClean}`
 
-    const drive = getUserDrive()
+    const drive = getDrive()
 
     const copyRes = await drive.files.copy({
       fileId: baseDocId,

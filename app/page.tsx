@@ -431,6 +431,12 @@ export default function Home() {
       const data = await res.json()
       console.log('[Generate Docs] API response:', data)
 
+      if (data.error) {
+        console.error('[Generate Docs] API error:', data.error)
+        alert(`문서 생성 실패: ${data.error}`)
+        return
+      }
+
       if (data.doc_url) {
         if (data.db_error) {
           console.warn('[Generate Docs] DB update issue:', data.db_error, data.db_state)
