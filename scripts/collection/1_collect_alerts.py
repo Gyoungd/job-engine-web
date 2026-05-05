@@ -541,6 +541,37 @@ def main() -> int:
         all_truncation.extend(mon["truncation_events"])
         logger.info(f"Seek total: {len(jobs)} jobs from {mon['total_emails']} emails")
 
+    logger.info(f"Combined total (pre-dedup): {len(all_jobs)} jobs")
+
+    # Cross-email URL dedup — same job appears in multiple weekly digests
+    # Keep the version with more metadata (longer description, API-sourced posted_at)
+    seen_urls_map: dict[str, int] = {}  # clean_url → index in deduped list
+    deduped_jobs: list[JobPost] = []
+    url_dupes_removed = 0
+
+    for job in all_jobs:
+        url_key = job.url.rstrip("/") if job.url else ""
+        if url_key and url_key in seen_urls_map:
+            # Compare: keep the one with better metadata
+            existing_idx = seen_urls_map[url_key]
+            existing = deduped_jobs[existing_idx]
+            new_score = len(job.description or "") + (10 if job.posted_at_source == "api" else 0)
+            old_score = len(existing.description or "") + (10 if existing.posted_at_source == "api" else 0)
+            if new_score > old_score:
+                deduped_jobs[existing_idx] = job
+            url_dupes_removed += 1
+        else:
+            if url_key:
+                seen_urls_map[url_key] = len(deduped_jobs)
+            deduped_jobs.append(job)
+
+    if url_dupes_removed:
+        logger.info(
+            f"Cross-email URL dedup: {len(all_jobs)} → {len(deduped_jobs)} "
+            f"({url_dupes_removed} duplicates removed)"
+        )
+    all_jobs = deduped_jobs
+
     logger.info(f"Combined total: {len(all_jobs)} jobs")
 
     # Truncation summary

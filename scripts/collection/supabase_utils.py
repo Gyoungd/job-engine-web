@@ -40,10 +40,35 @@ def get_client() -> Client:
 # ============================================================
 # seen_jobs upsert (atomic)
 # ============================================================
+def _normalize_url(url: str) -> str:
+    """
+    Extract stable job identifier from URL.
+    LinkedIn: https://linkedin.com/comm/jobs/view/12345?... → linkedin.com/jobs/view/12345
+    Seek:     https://www.seek.com.au/job/12345?... → seek.com.au/job/12345
+    """
+    if not url:
+        return ""
+    try:
+        from urllib.parse import urlparse
+        parsed = urlparse(url)
+        # Strip www., comm/ prefix, query params, fragments
+        host = parsed.netloc.replace("www.", "")
+        path = parsed.path.replace("/comm/", "/")
+        # Remove trailing slashes
+        path = path.rstrip("/")
+        return f"{host}{path}"
+    except Exception:
+        return url
+
+
 def upsert_job(job: JobPost, classified_role: str = "unknown", queued: bool = False) -> bool:
     """
     Atomic upsert into Supabase seen_jobs.
     Returns True if NEW row, False if existing row updated.
+
+    Dedup strategy (2-layer):
+      1. Check by URL first (catches same job with different company name formatting)
+      2. Fall back to hash check (catches jobs without URL)
 
     Uses PostgREST RPC for ON CONFLICT semantics:
       - NEW: INSERT all fields, times_seen=1
@@ -70,31 +95,53 @@ def upsert_job(job: JobPost, classified_role: str = "unknown", queued: bool = Fa
 
     client = get_client()
 
-    # Check existence first (cheap — hash is PK, indexed)
-    existing = (
-        client.table("seen_jobs")
-        .select("hash, times_seen, queued")
-        .eq("hash", job.hash)
-        .limit(1)
-        .execute()
-    )
+    # --- Layer 1: URL-based dedup (catches "Vanguard" vs "Vanguard Australia") ---
+    existing = None
+    if job.url:
+        norm_url = _normalize_url(job.url)
+        # ilike match on the stable path portion (e.g. linkedin.com/jobs/view/12345)
+        url_match = (
+            client.table("seen_jobs")
+            .select("hash, times_seen, queued, url")
+            .ilike("url", f"%{norm_url}%")
+            .limit(1)
+            .execute()
+        )
+        if url_match.data:
+            existing = url_match.data[0]
+            logger.debug(
+                f"[URL-DEDUP] Matched existing url for {job.title} "
+                f"(existing hash={existing['hash'][:12]}, new hash={job.hash[:12]})"
+            )
 
-    if not existing.data:
+    # --- Layer 2: Hash-based dedup (fallback) ---
+    if not existing:
+        hash_match = (
+            client.table("seen_jobs")
+            .select("hash, times_seen, queued")
+            .eq("hash", job.hash)
+            .limit(1)
+            .execute()
+        )
+        if hash_match.data:
+            existing = hash_match.data[0]
+
+    if not existing:
         # NEW — atomic INSERT (PK conflict-safe via upsert)
         client.table("seen_jobs").upsert(payload, on_conflict="hash").execute()
         logger.info(f"[NEW] {job.source} | {job.company} | {job.title}")
         return True
 
     # EXISTING — update last_seen, increment times_seen, preserve queued
-    old = existing.data[0]
     update_payload = {
         "last_seen": now,
-        "times_seen": old["times_seen"] + 1,
-        "queued": max(old["queued"], 1 if queued else 0),
+        "times_seen": existing["times_seen"] + 1,
+        "queued": max(existing["queued"], 1 if queued else 0),
         "classified_role": classified_role,
         "source_region": job.source_region,
     }
-    client.table("seen_jobs").update(update_payload).eq("hash", job.hash).execute()
+    client.table("seen_jobs").update(update_payload).eq("hash", existing["hash"]).execute()
+    logger.debug(f"[SEEN] {job.source} | {job.company} | {job.title} (times_seen={existing['times_seen']+1})")
     return False
 
 
