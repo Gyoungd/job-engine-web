@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase/server'
 import { getUserDocs } from '@/lib/google'
 import { google } from 'googleapis'
+import { applyProjectChanges, parseProjectChanges } from '@/lib/projects'
 
 const BASE_DOCS: Record<string, string> = {
   DA: process.env.GDOC_BASE_DA ?? '',
@@ -143,6 +144,22 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    let projectsApplied = 0
+    let projectErrors: string[] = []
+    if (app.resume_changes && newDocId) {
+      const projectChanges = parseProjectChanges(app.resume_changes)
+      if (projectChanges.length > 0) {
+        try {
+          const result = await applyProjectChanges(newDocId, projectChanges)
+          projectsApplied = result.applied
+          projectErrors = result.errors
+          console.log('[copy-base] Applied ${projectsApplied} project swaps, ${projectErrors.length} errors')
+        } catch (e) {
+          console.warn('[copy-base] Project swap failed:', e)
+        }
+      }
+    }
+
     // Update DB
     const { data: updated, error: err1 } = await supabaseAdmin
       .from('applications')
@@ -185,6 +202,8 @@ export async function POST(req: NextRequest) {
         doc_id: newDocId, doc_url: docUrl, file_name: fileName, role,
         db_verified: verify?.doc_url === docUrl, db_state: verify,
         changes_applied: changesApplied, changes_error: changesError,
+        projects_applied: projectsApplied,
+        project_errors: projectErrors,
       })
     }
 
