@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase/server'
+import { getDocs } from '@/lib/google'
 import { google } from 'googleapis'
 
 const BASE_DOCS: Record<string, string> = {
@@ -28,6 +29,51 @@ function getUserDrive() {
   })
 
   return google.drive({ version: 'v3', auth: oauth2 })
+}
+
+function parseOriginalRevised(text: string): Array<{ original: string; revised: string }> {
+  const pairs: Array<{ original: string; revised: string }> = []
+  const blocks = text.split('[ORIGINAL]')
+
+  for (let i = 1; i < blocks.length; i++) {
+    const block = blocks[i]
+    const origMatch = block.match(/^\s*"([\s\S]*?)"/)
+    if (!origMatch) continue
+
+    const revisedIdx = block.indexOf('[REVISED')
+    if (revisedIdx === -1) continue
+
+    const revisedMatch = block.slice(revisedIdx).match(/\[REVISED[^\]]*\]\s*"([\s\S]*?)"/)
+    if (!revisedMatch) continue
+
+    const original = origMatch[1].trim()
+    const revised = revisedMatch[1].trim()
+    if (original && revised && original !== revised) {
+      pairs.push({ original, revised })
+    }
+  }
+
+  return pairs
+}
+
+async function applyResumeChanges(docId: string, resumeChanges: string) {
+  const pairs = parseOriginalRevised(resumeChanges)
+  if (pairs.length === 0) return { applied: 0 }
+
+  const docs = getDocs()
+  const requests = pairs.map(({ original, revised }) => ({
+    replaceAllText: {
+      containsText: { text: original, matchCase: true },
+      replaceText: revised,
+    },
+  }))
+
+  await docs.documents.batchUpdate({
+    documentId: docId,
+    requestBody: { requests },
+  })
+
+  return { applied: pairs.length }
 }
 
 export async function POST(req: NextRequest) {
@@ -83,7 +129,21 @@ export async function POST(req: NextRequest) {
     const newDocId = copyRes.data.id
     const docUrl = `https://docs.google.com/document/d/${newDocId}/edit`
 
-    // Try updating all fields at once
+    // Apply resume changes to the copied doc
+    let changesApplied = 0
+    let changesError: string | undefined
+    if (app.resume_changes && newDocId) {
+      try {
+        const result = await applyResumeChanges(newDocId, app.resume_changes)
+        changesApplied = result.applied
+        console.log(`[copy-base] Applied ${changesApplied} resume changes to ${newDocId}`)
+      } catch (e) {
+        changesError = e instanceof Error ? e.message : 'Unknown error'
+        console.warn('[copy-base] Failed to apply resume changes:', changesError)
+      }
+    }
+
+    // Update DB
     const { data: updated, error: err1 } = await supabaseAdmin
       .from('applications')
       .update({ doc_id: newDocId, doc_url: docUrl, status: 'docs_copied' })
@@ -93,31 +153,24 @@ export async function POST(req: NextRequest) {
     if (err1) {
       console.error('[copy-base] Update error:', JSON.stringify(err1))
 
-      // Fallback: update fields individually to find which column fails
       const results: Record<string, string> = {}
-
       const { error: e1 } = await supabaseAdmin.from('applications').update({ status: 'docs_copied' }).eq('id', applicationId)
       results.status = e1 ? `FAIL: ${e1.message}` : 'OK'
-
       const { error: e2 } = await supabaseAdmin.from('applications').update({ doc_url: docUrl }).eq('id', applicationId)
       results.doc_url = e2 ? `FAIL: ${e2.message}` : 'OK'
-
       const { error: e3 } = await supabaseAdmin.from('applications').update({ doc_id: newDocId }).eq('id', applicationId)
       results.doc_id = e3 ? `FAIL: ${e3.message}` : 'OK'
 
       console.error('[copy-base] Individual update results:', results)
-
       return NextResponse.json({
         doc_id: newDocId, doc_url: docUrl, file_name: fileName, role,
         db_verified: false, db_field_results: results,
+        changes_applied: changesApplied, changes_error: changesError,
       })
     }
 
-    // Check if update actually matched rows
     if (!updated || updated.length === 0) {
       console.error('[copy-base] Update matched 0 rows for id:', applicationId)
-
-      // Fallback: try individual updates
       await supabaseAdmin.from('applications').update({ status: 'docs_copied' }).eq('id', applicationId)
       await supabaseAdmin.from('applications').update({ doc_url: docUrl }).eq('id', applicationId)
       await supabaseAdmin.from('applications').update({ doc_id: newDocId }).eq('id', applicationId)
@@ -130,14 +183,15 @@ export async function POST(req: NextRequest) {
 
       return NextResponse.json({
         doc_id: newDocId, doc_url: docUrl, file_name: fileName, role,
-        db_verified: verify?.doc_url === docUrl,
-        db_state: verify,
+        db_verified: verify?.doc_url === docUrl, db_state: verify,
+        changes_applied: changesApplied, changes_error: changesError,
       })
     }
 
     return NextResponse.json({
       doc_id: newDocId, doc_url: docUrl, file_name: fileName, role,
       db_verified: true,
+      changes_applied: changesApplied, changes_error: changesError,
     })
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'Unknown error'

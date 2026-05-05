@@ -2,6 +2,33 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase/server'
 import { callAnthropic, MODELS } from '@/lib/anthropic'
 import { SKILLS_MATRIX, PROJECTS_INVENTORY } from '@/lib/profile-context'
+import fs from 'fs'
+import path from 'path'
+
+function preClassifyRole(title: string): 'DA' | 'DS' | 'DE' {
+  const t = title.toLowerCase()
+  if (/scientist|machine.?learning|\bml\b|statistical model|nlp|deep.?learn/.test(t)) return 'DS'
+  if (/engineer|pipeline|etl|streaming|platform|infrastructure|architect/.test(t)) return 'DE'
+  return 'DA'
+}
+
+function loadBaseResume(role: 'DA' | 'DS' | 'DE'): string {
+  try {
+    const file = path.join(process.cwd(), 'profile', `${role.toLowerCase()}.md`)
+    return fs.readFileSync(file, 'utf-8')
+  } catch {
+    return ''
+  }
+}
+
+// Strip markdown markers so [ORIGINAL] matches plain text in Google Docs
+function stripMarkdown(text: string): string {
+  return text
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/\*([^*]+)\*/g, '$1')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/\\(.)/g, '$1')
+}
 
 const SYSTEM_PROMPT = `You are a resume tailoring engine for Gayoung Dan (Ina), a recent Master of Data Science graduate from Monash University.
 
@@ -60,8 +87,15 @@ Reason: [1-2 sentences]
 RESUME CHANGES
 [List EVERY edit as [ORIGINAL]/[REVISED] pairs]
 
+CRITICAL RULES FOR [ORIGINAL]/[REVISED]:
+- [ORIGINAL] MUST be copied VERBATIM from the CURRENT BASE RESUME TEXT provided in the user prompt
+- NEVER invent, paraphrase, or describe the original — copy the exact characters
+- NEVER use placeholders like "(Summary / profile line...)" — always use the real text
+- Both [ORIGINAL] and [REVISED] MUST be wrapped in double quotes "like this"
+- If you cannot find matching text in the base resume, skip that change entirely
+
 [ORIGINAL]
-"exact current text to find"
+"exact current text copied from base resume"
 
 [REVISED]
 "improved text"
@@ -112,10 +146,18 @@ export async function POST(req: NextRequest) {
     // Build prompt
     const jdContent = jdText ?? `Title: ${job.title}\nCompany: ${job.company ?? 'N/A'}\nLocation: ${job.location ?? 'N/A'}\nURL: ${job.url ?? 'N/A'}\nSource: ${job.source ?? 'N/A'}`
 
+    // Load base resume from local markdown file
+    const preRole = preClassifyRole(job.title ?? '')
+    const baseResumeRaw = loadBaseResume(preRole)
+    const baseResumeText = baseResumeRaw ? stripMarkdown(baseResumeRaw) : ''
+
     const prompt = `Analyze this job description and generate resume tailoring changes.
 
 JOB DESCRIPTION:
 ${jdContent}
+
+CURRENT BASE RESUME PLAIN TEXT (copy [ORIGINAL] values verbatim from here — no paraphrasing):
+${baseResumeText || '(unavailable — use your best judgment)'}
 
 Follow the output format exactly. Every resume edit must be in [ORIGINAL]/[REVISED] format.
 Only use skills and projects from the verified lists in your system prompt.`

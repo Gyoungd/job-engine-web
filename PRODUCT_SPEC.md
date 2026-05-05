@@ -2,7 +2,7 @@
 
 > **Last Updated:** 2026-05-05
 > **Owner:** Gayoung Dan (Ina)
-> **Status:** Active Development — Phase 5 ✅ COMPLETE, Phase 5.1 PWA 🟡 PARTIAL, Phase 5.3 ✅ COMPLETE
+> **Status:** Active Development — Phase 5 ✅ COMPLETE, Phase 5.1 PWA 🟡 PARTIAL, Phase 5.3 ✅ COMPLETE, Generate Docs auto-apply ✅ COMPLETE
 > **Repository:** [https://github.com/Gyoungd/job-engine-web](https://github.com/Gyoungd/job-engine-web)
 > **Production URL:** [https://job-engine-web.vercel.app](https://job-engine-web.vercel.app)
 
@@ -53,7 +53,9 @@ Frontend:    Next.js 16 + Tailwind CSS (App Router)
 Backend:     Vercel Serverless Functions (TypeScript)
 Database:    Supabase (PostgreSQL)
 AI:          Anthropic API (Haiku 4.5 for ranking, Sonnet 4.6 for generation)
-Storage:     Google Drive (user OAuth) + Google Sheets (Service Account)
+Storage:     Google Drive (user OAuth — file copy) + Google Docs API (Service Account — text replace)
+             + Google Sheets (Service Account — pipeline sync)
+Profile:     /profile/*.md (da.md, ds.md, de.md) — local base resume text, source of truth for [ORIGINAL] matching
 Hosting:     Vercel (Hobby tier)
 Collection:  GitHub Actions cron (Python scripts pushing to Supabase)
 ```
@@ -75,17 +77,31 @@ Collection:  GitHub Actions cron (Python scripts pushing to Supabase)
 [User clicks "Generate top 10" → POST /api/rank → Haiku scores]
             ↓
 [User clicks "Generate resume" → POST /api/generate-resume → Sonnet]
+  · preClassifyRole(job.title) → load /profile/{da|ds|de}.md
+  · stripMarkdown() → include plain text in Claude prompt as base resume
+  · Claude generates [ORIGINAL]/[REVISED] pairs from actual base resume text
             ↓
-[Supabase: applications table]
+[Supabase: applications table (resume_changes stored as text)]
             ↓
-[User clicks "Generate Docs" → POST /api/docs/copy-base → Google Drive]
+[User clicks "Generate Docs" → POST /api/docs/copy-base]
+  Step 1: User OAuth (GMAIL_TOKEN_JSON) → drive.files.copy() → Trimmed Resume folder
+  Step 2: Service Account (GOOGLE_SERVICE_ACCOUNT_JSON) → getDocs().batchUpdate()
+          · parseOriginalRevised(resume_changes) → [ORIGINAL]/[REVISED] pairs
+          · replaceAllText per pair → text replaced, formatting preserved
             ↓
-[User edits in Google Docs → exports PDF → submits manually]
+[Google Doc: base template copied + resume changes auto-applied]
+            ↓
+[User reviews doc → fine-tunes manually if needed → exports PDF → submits]
             ↓
 [User clicks "Mark applied" → POST /api/applications/mark-applied]
             ↓
 [Supabase + Google Sheets sync]
 ```
+
+**Auto-apply scope and limitations:**
+- `[ORIGINAL]/[REVISED]` pairs: auto-applied via `replaceAllText` (exact text match, formatting preserved)
+- `[PROJECT SWAP / ADDITION]`: not auto-applied — requires manual edit in Google Doc
+- If text match fails (e.g., base template updated but `.md` file not synced): change silently skipped, doc still opens
 
 **Notification model:** No proactive notifications in MVP. User pulls the dashboard at convenience (typical: 12pm AEST lunch break, evening, before sleep). Push notifications evaluated in Phase 5.1 based on usage data.
 
@@ -224,7 +240,7 @@ Each tab section maps UI components to API endpoints, with implementation status
 | Status filter          | All / Draft / Docs copied / Submitted                          | `GET /api/applications?status=`       | ✅      |
 | Draft card             | Show role badge, generation time, status indicators            | `GET /api/applications`               | ✅      |
 | Resume changes preview | Display resume-changes.md content (modal or expand)            | `GET /api/applications/:id`           | ✅      |
-| Generate Docs button   | Copy base resume → Trimmed folder; becomes "Open Resume" after | `POST /api/docs/copy-base`            | ✅      |
+| Generate Docs button   | Copy base resume → Trimmed folder → auto-apply [ORIGINAL]/[REVISED] changes via Docs API; becomes "Open Resume" after | `POST /api/docs/copy-base` | ✅      |
 | Open Resume button     | Opens created Google Doc (replaces Generate Docs after copy)   | External link                         | ✅      |
 | Mark applied button    | Update status to submitted + sync to Sheets                    | `POST /api/applications/mark-applied` | ✅      |
 | **Withdraw button**    | Set status = withdrawn in one click (draft/docs_copied only); removes from Drafts view; hides from Home Top Picks via existing `exclude_status=withdrawn` | `PATCH /api/applications/:id` | ✅      |
@@ -233,8 +249,8 @@ Each tab section maps UI components to API endpoints, with implementation status
 **User flow:**
 
 1. User opens Drafts tab → sees all generated drafts
-2. User clicks Generate Docs → API copies base resume to Trimmed folder
-3. User opens new Google Doc → manually applies resume-changes → exports PDF
+2. User clicks Generate Docs → API copies base resume to Trimmed folder + auto-applies [ORIGINAL]/[REVISED] changes
+3. User opens Google Doc (auto-opened in new tab) → reviews changes → fine-tunes [PROJECT SWAP] sections manually if needed → exports PDF
 4. User submits to employer → returns to app → clicks Mark applied
 5. App updates Supabase + Google Sheets row
 6. (Alt) User decides not to apply → clicks Withdraw → draft removed from view, job hidden from Top Picks
@@ -338,10 +354,9 @@ All queue responses permanently exclude:
 ### Document automation
 
 
-| Method | Path                      | Purpose                            | Status       |
-| ------ | ------------------------- | ---------------------------------- | ------------ |
-| POST   | `/api/docs/copy-base`     | Copy base resume to Trimmed folder | ✅            |
-| POST   | `/api/docs/apply-changes` | Auto-apply resume-changes to doc   | 💤 (Phase B) |
+| Method | Path                  | Purpose                                                                                          | Status |
+| ------ | --------------------- | ------------------------------------------------------------------------------------------------ | ------ |
+| POST   | `/api/docs/copy-base` | Copy base resume to Trimmed folder + auto-apply [ORIGINAL]/[REVISED] pairs via Docs batchUpdate | ✅      |
 
 
 ### Job management
@@ -824,7 +839,7 @@ iPhone에서 Safari → 공유 → "홈 화면에 추가"로 네이티브 앱처
 
 Items deferred indefinitely or pending business case validation.
 
-- `POST /api/docs/apply-changes` — Auto-apply resume-changes to Google Doc
+- ~~`POST /api/docs/apply-changes`~~ — Merged into `copy-base` (auto-applies [ORIGINAL]/[REVISED] pairs via replaceAllText on copy)
 - `POST /api/collection/trigger` — Manual refresh button (currently: `workflow_dispatch` from GitHub UI)
 - `GET /api/collection-runs/latest` — Detailed per-source run breakdown
 - `GET/PATCH /api/config` — User settings persistence (auto-rank, notify threshold)
@@ -970,6 +985,9 @@ View in pipeline button:
 | --------------------------- | ------------------------------------------------- |
 | `DESIGN_SYSTEM.md`          | UI color palette, component specs, typography     |
 | `PIPELINE_RULES.md`         | `/apply` pipeline logic + ATS keyword rules       |
+| `profile/da.md`             | DA base resume plain text — source of truth for [ORIGINAL] matching |
+| `profile/ds.md`             | DS base resume plain text — source of truth for [ORIGINAL] matching |
+| `profile/de.md`             | DE base resume plain text — source of truth for [ORIGINAL] matching |
 | `skills-matrix.md`          | Verified technical stack (resume source of truth) |
 | `projects-inventory.md`     | Project portfolio (resume swap candidates)        |
 | `job_engine_mobile_v2.html` | Original UI mockup                                |
@@ -995,5 +1013,6 @@ View in pipeline button:
 | 2026-05-04 | Phase 5.1 PWA  | manifest.ts, icon.tsx, apple-icon.tsx, iOS standalone 메타태그, safe area inset 적용 — 홈 화면 앱 설치 가능                                                                                                                                    |
 | 2026-05-04 | Phase 5.2      | Top picks: limit 5, application merge API, applied → Pipeline scroll+highlight, Open doc for docs_copied, Search `include_application` + preset footer; `/api/queue` params `include_application`, `exclude_status`, `score_gte` |
 | 2026-05-05 | Phase 5.3      | Stale job handling: `is_expired` DB column + migration, `PATCH /api/jobs/:hash/expire`, 14-day filter via `max_age_days=14` param (Home New Jobs only; Search tab unfiltered), "Expired" button gray (Home+Search, idle only, optimistic UI), "Withdraw" button gray (Drafts tab + Home Drafts mini-card, draft/docs_copied only), rename "Top picks" → "New Jobs" |
+| 2026-05-05 | Generate Docs  | Fix Generate Docs: (1) reverted copy-base to user OAuth (GMAIL_TOKEN_JSON) to avoid service account Drive quota exhaustion; (2) `generate-resume` now reads `/profile/{da\|ds\|de}.md` + stripMarkdown() → base resume text fed to Claude prompt so [ORIGINAL] matches actual doc text; (3) `copy-base` auto-applies [ORIGINAL]/[REVISED] pairs via Google Docs API `batchUpdate replaceAllText` after copy (Service Account); (4) added `outputFileTracingIncludes` to next.config.ts for Vercel file bundling; (5) added GDOC_BASE_{DA\|DS\|DE} env vars to Vercel production |
 
 
