@@ -23,11 +23,20 @@ function loadBaseResume(role: 'DA' | 'DS' | 'DE'): string {
 
 // Strip markdown markers so [ORIGINAL] matches plain text in Google Docs
 function stripMarkdown(text: string): string {
-  return text
-    .replace(/\*\*([^*]+)\*\*/g, '$1')
-    .replace(/\*([^*]+)\*/g, '$1')
-    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-    .replace(/\\(.)/g, '$1')
+  let result = text
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')  // links
+    .replace(/\\(.)/g, '$1')                   // escapes
+    .replace(/^[*-] /gm, '')                   // bullet list markers (* text / - text)
+
+  // Multi-pass: handles nested bold+italic like **text *italic* text**
+  for (let i = 0; i < 3; i++) {
+    result = result
+      .replace(/\*\*\*([^*]+)\*\*\*/g, '$1')
+      .replace(/\*\*([^*]+)\*\*/g, '$1')
+      .replace(/\*([^*]+)\*/g, '$1')
+  }
+
+  return result.replace(/\*+/g, '')  // any remaining asterisks
 }
 
 const SYSTEM_PROMPT = `You are a resume tailoring engine for Gayoung Dan (Ina), a recent Master of Data Science graduate from Monash University.
