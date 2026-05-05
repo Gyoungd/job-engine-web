@@ -36,3 +36,23 @@ export const BASE_DOCS: Record<string, string> = {
 }
 
 export const TRIMMED_FOLDER_ID = process.env.GDRIVE_TRIMMED_FOLDER_ID ?? ''
+
+export function getUserDocs() {
+  const tokenJson = process.env.GMAIL_TOKEN_JSON
+  const credJson = process.env.GMAIL_CREDENTIALS_JSON
+  if (!tokenJson || !credJson) throw new Error('Gmail OAuth env vars not set')
+
+  const token = JSON.parse(tokenJson)
+  const cred = JSON.parse(credJson)
+  const { client_id, client_secret } = cred.installed
+
+  const oauth2 = new google.auth.OAuth2(client_id, client_secret)
+  oauth2.setCredentials({
+    access_token: token.token,
+    refresh_token: token.refresh_token,
+    token_type: 'Bearer',
+    expiry_date: token.expiry_date ?? 0,
+  })
+
+  return google.docs({ version: 'v1', auth: oauth2 })
+}

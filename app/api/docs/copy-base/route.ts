@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase/server'
-import { getDocs } from '@/lib/google'
+import { getUserDocs } from '@/lib/google'
 import { google } from 'googleapis'
 
 const BASE_DOCS: Record<string, string> = {
@@ -60,7 +60,7 @@ async function applyResumeChanges(docId: string, resumeChanges: string) {
   const pairs = parseOriginalRevised(resumeChanges)
   if (pairs.length === 0) return { applied: 0 }
 
-  const docs = getDocs()
+  const docs = getUserDocs()
   const requests = pairs.map(({ original, revised }) => ({
     replaceAllText: {
       containsText: { text: original, matchCase: true },
