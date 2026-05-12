@@ -3,7 +3,7 @@ const readline = require('readline');
 
 // 직접 입력 (gmail-credentials.json에서 복사)
 var CLIENT_ID = '806336906152-jjddo8te1i6ojiegmaaqu8op1mn4i043.apps.googleusercontent.com';
-var CLIENT_SECRET = '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';
+var CLIENT_SECRET = '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';
 
 var oauth2 = new google.auth.OAuth2(CLIENT_ID, CLIENT_SECRET, 'http://localhost');
 
