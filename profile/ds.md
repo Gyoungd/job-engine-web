@@ -5,6 +5,18 @@ Melbourne | gayoung.dan.data@gmail.com | +61 422 145 349 | [LinkedIn](http://www
 
 Master of Data Science graduate specialising in machine learning and time-series forecasting using Python and SQL. Experienced in feature engineering, random forest modelling, and RMSE-based evaluation for predictive analytics.
 
+**TECHNICAL SKILLS**
+Python | SQL | R
+Machine Learning (Random Forest, Regression, Clustering) | Time-Series Forecasting
+Feature Engineering | Model Evaluation (RMSE, Cross-Validation) | Data Wrangling
+
+**PROFESSIONAL EXPERIENCE**
+**S&I Corp. (LG-Affiliated Company)** Wroclaw, Poland
+*Planning Assistant Manager* May 2021 – June 2022
+
+* Conducted financial data analysis and cash flow forecasting to support strategic planning decisions
+* Delivered data-backed recommendations improving operational efficiency and cost management
+
 **PROJECTS**
 **Stock Market Volatility Prediction | *Kaggle, Monash University*** *Sep 2024*
 
@@ -30,24 +42,11 @@ Master of Data Science graduate specialising in machine learning and time-series
 * Designed a relational data warehouse and validated datasets to support structured booking trend analysis
 * Cleaned, transformed, and validated datasets to resolve integrity issues and ensure analytical consistency
 
-**PROFESSIONAL EXPERIENCE**
-**S&I Corp. (LG-Affiliated Company)** Wroclaw, Poland
-*Planning Assistant Manager* May 2021 – June 2022
-
-* Conducted financial data analysis and cash flow forecasting to support strategic planning decisions
-* Delivered data-backed recommendations improving operational efficiency and cost management
-
-**TECHNICAL SKILLS**
-Python | SQL | R
-Machine Learning (Random Forest, Regression, Clustering) | Time-Series Forecasting
-
-Feature Engineering | Model Evaluation (RMSE, Cross-Validation) | Data Wrangling
-
 **EDUCATION**
 **Monash University** Melbourne, Australia
-*Master of Data Science* (WAM: 77.1) *Graduated December 2025*
+*Master of Data Science* *Graduated December 2025*
 
 * Related Coursework: Statistical Data Modelling, Data Wrangling, Data Processing for Big Data, Advanced Database Technology, Applied Data Analysis
 
 **Hankuk University of Foreign Studies** Seoul, Korea
-*Bachelor of Business Administration | Global Business & Technology* (89.1/100) *February 2016 – August 2021*
+*Bachelor of Business Administration | Global Business & Technology* *February 2016 – August 2021*

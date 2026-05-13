@@ -106,7 +106,7 @@ function findProjectsSectionEnd(doc: docs_v1.Schema$Document): number {
       foundProjects = true
       continue
     }
-    if (foundProjects && (text === 'PROFESSIONAL EXPERIENCE' || text === 'EXPERIENCE')) {
+    if (foundProjects && text === 'EDUCATION') {
       return content[i].startIndex ?? 0
     }
   }
@@ -220,7 +220,7 @@ export async function applyProjectChanges(
       const resumeDoc = (await docs.documents.get({ documentId: resumeDocId })).data
 
       if (change.action === 'Replace' && change.oldProjectName) {
-        const oldBlock = findProjectBlock(resumeDoc, change.oldProjectName, 'PROFESSIONAL EXPERIENCE')
+        const oldBlock = findProjectBlock(resumeDoc, change.oldProjectName, 'EDUCATION')
         if (!oldBlock) {
           errors.push(`Resume에서 못 찾음: ${change.oldProjectName}`)
           continue
