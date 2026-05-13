@@ -108,6 +108,8 @@ Top 5 signals:
 
 Tier: [A / B]
 Suitability %: [X]% — [1 sentence rationale]
+Job Type: [Full-time / Part-time / Contract / Internship / Graduate Program / On-site / Hybrid / Unknown]
+Due Date: [DD/MM/YYYY or Unknown]
 ---
 PROJECT BASE SCAN
 Shortlisted candidates (top 3, ranked by JD fit):
@@ -218,6 +220,15 @@ Only use skills and projects from the verified lists in your system prompt.`
     const tierMatch = result.match(/Tier:\s*(A|B)/i)
     const tier = tierMatch ? tierMatch[1].toUpperCase() : null
 
+    // Parse job_type and due_date (Phase 2 metadata)
+    const jobTypeMatch = result.match(/^Job Type:\s*(.+)$/m)
+    const jobTypeRaw = jobTypeMatch?.[1]?.trim()
+    const jobType = jobTypeRaw && jobTypeRaw !== 'Unknown' ? jobTypeRaw : null
+
+    const dueDateMatch = result.match(/^Due Date:\s*(.+)$/m)
+    const dueDateRaw = dueDateMatch?.[1]?.trim()
+    const dueDate = dueDateRaw && dueDateRaw !== 'Unknown' ? dueDateRaw : null
+
     // Create folder path
     const today = new Date().toISOString().slice(0, 10)
     const companySlug = (job.company ?? 'unknown')
@@ -236,6 +247,8 @@ Only use skills and projects from the verified lists in your system prompt.`
         resume_changes: result,
         status: 'draft',
         suitability_pct: suitabilityPct,
+        job_type: jobType,
+        due_date: dueDate,
       })
       .select()
       .single()
@@ -245,14 +258,19 @@ Only use skills and projects from the verified lists in your system prompt.`
       return NextResponse.json({ error: 'Failed to save application' }, { status: 500 })
     }
 
-    // Update score on seen_jobs if not already scored
+    // Update score + jd_text on seen_jobs
+    const seenJobsUpdate: Record<string, unknown> = {}
     if (suitabilityPct && !job.score) {
+      seenJobsUpdate.score = suitabilityPct
+      seenJobsUpdate.classified_role = classifiedRole
+    }
+    if (jdText && !job.jd_text) {
+      seenJobsUpdate.jd_text = jdText
+    }
+    if (Object.keys(seenJobsUpdate).length > 0) {
       await supabaseAdmin
         .from('seen_jobs')
-        .update({
-          score: suitabilityPct,
-          classified_role: classifiedRole,
-        })
+        .update(seenJobsUpdate)
         .eq('hash', jdHash)
     }
 
@@ -262,6 +280,8 @@ Only use skills and projects from the verified lists in your system prompt.`
       classified_role: classifiedRole,
       suitability_pct: suitabilityPct,
       tier,
+      job_type: jobType,
+      due_date: dueDate,
       resume_changes: result,
       model: MODELS.GENERATE,
     })

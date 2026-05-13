@@ -354,6 +354,7 @@ export default function Home() {
       if (res.ok) {
         setGenerating(prev => ({ ...prev, [hash]: 'done' }))
         fetchHomeData()
+        fetch('/api/sheets/sync', { method: 'POST' }).catch(() => {})
       } else if (res.status === 409) {
         setGenerating(prev => ({ ...prev, [hash]: 'done' }))
       } else {
@@ -1823,13 +1824,31 @@ export default function Home() {
                 </div>
               )}
 
+              {/* Open Tracker button */}
+              <a
+                href="https://docs.google.com/spreadsheets/d/1gOxw-x5-G2PaDYUS-Wh9hgPWC_bBKkAPN9Gtw2xcbxo/edit"
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                  width: '100%', padding: 14, borderRadius: 12, fontSize: 13, fontWeight: 600,
+                  border: '1px solid #1a8b5f', cursor: 'pointer', background: '#e6f7ef', color: '#1a8b5f',
+                  marginTop: 12, textDecoration: 'none', boxSizing: 'border-box',
+                }}
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/>
+                </svg>
+                Open Job Hunting Tracker
+              </a>
+
               {/* Refresh button */}
               <button
                 onClick={fetchProfile}
                 style={{
                   width: '100%', padding: 14, borderRadius: 12, fontSize: 13, fontWeight: 600,
                   border: '1px solid #e8eef5', cursor: 'pointer', background: 'white', color: '#4682bf',
-                  marginTop: 12,
+                  marginTop: 8,
                 }}
               >
                 Refresh collection data

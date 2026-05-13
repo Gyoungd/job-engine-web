@@ -56,6 +56,7 @@ AI:          Anthropic API (Haiku 4.5 for ranking, Sonnet 4.6 for generation)
 Storage:     Google Drive (user OAuth — file copy) + Google Docs API (Service Account — text replace)
              + Google Sheets (Service Account — pipeline sync)
 Profile:     /profile/*.md (da.md, ds.md, de.md) — local base resume text, source of truth for [ORIGINAL] matching
+             Section order (must match Google Docs base docs): Technical Skills → Professional Experience → Projects → Education
 Hosting:     Vercel (Hobby tier)
 Collection:  GitHub Actions cron (Python scripts pushing to Supabase)
 ```
@@ -79,6 +80,10 @@ Collection:  GitHub Actions cron (Python scripts pushing to Supabase)
 [User clicks "Generate resume" → POST /api/generate-resume → Sonnet]
   · preClassifyRole(job.title) → load /profile/{da|ds|de}.md
   · stripMarkdown() → include plain text in Claude prompt as base resume
+  · SYSTEM_PROMPT injects: SKILLS_MATRIX + PROJECTS_INVENTORY + tailoring criteria
+      - Project swap rules: swap only if new project ≥3 JD signals AND replaced ≤1; max 1 swap
+      - Bullet rewriting rules: max 3 pairs/section; no duplicate opening verbs; no AI-gen patterns
+      - Suitability scoring: base 40% + skill/project/confidence bonuses; cap 90%; Tier A ≥70%
   · Claude generates [ORIGINAL]/[REVISED] pairs from actual base resume text
             ↓
 [Supabase: applications table (resume_changes stored as text)]
@@ -102,6 +107,7 @@ Collection:  GitHub Actions cron (Python scripts pushing to Supabase)
 - `[ORIGINAL]/[REVISED]` pairs: auto-applied via `replaceAllText` (exact text match, formatting preserved)
 - `[PROJECT SWAP / ADDITION]`: not auto-applied — requires manual edit in Google Doc
 - If text match fails (e.g., base template updated but `.md` file not synced): change silently skipped, doc still opens
+- `lib/projects.ts` uses `PROJECTS` and `EDUCATION` heading strings as section boundaries for batchUpdate navigation — if Google Docs headings change, update string constants accordingly
 
 **Notification model:** No proactive notifications in MVP. User pulls the dashboard at convenience (typical: 12pm AEST lunch break, evening, before sleep). Push notifications evaluated in Phase 5.1 based on usage data.
 
@@ -992,7 +998,7 @@ View in pipeline button:
 | `projects-inventory.md`     | Project portfolio (resume swap candidates)        |
 | `job_engine_mobile_v2.html` | Original UI mockup                                |
 | `CLAUDE.md`                 | Technical memory for Claude Code sessions         |
-| `AGENTS.md`                 | Cursor agent operational context                  |
+| `AGENTS.md`                 | Claude Code operational context — pipeline architecture, file roles, section order constraints, Google Docs boundary conventions |
 
 
 ---
@@ -1014,5 +1020,6 @@ View in pipeline button:
 | 2026-05-04 | Phase 5.2      | Top picks: limit 5, application merge API, applied → Pipeline scroll+highlight, Open doc for docs_copied, Search `include_application` + preset footer; `/api/queue` params `include_application`, `exclude_status`, `score_gte` |
 | 2026-05-05 | Phase 5.3      | Stale job handling: `is_expired` DB column + migration, `PATCH /api/jobs/:hash/expire`, 14-day filter via `max_age_days=14` param (Home New Jobs only; Search tab unfiltered), "Expired" button gray (Home+Search, idle only, optimistic UI), "Withdraw" button gray (Drafts tab + Home Drafts mini-card, draft/docs_copied only), rename "Top picks" → "New Jobs" |
 | 2026-05-05 | Generate Docs  | Fix Generate Docs: (1) reverted copy-base to user OAuth (GMAIL_TOKEN_JSON) to avoid service account Drive quota exhaustion; (2) `generate-resume` now reads `/profile/{da\|ds\|de}.md` + stripMarkdown() → base resume text fed to Claude prompt so [ORIGINAL] matches actual doc text; (3) `copy-base` auto-applies [ORIGINAL]/[REVISED] pairs via Google Docs API `batchUpdate replaceAllText` after copy (Service Account); (4) added `outputFileTracingIncludes` to next.config.ts for Vercel file bundling; (5) added GDOC_BASE_{DA\|DS\|DE} env vars to Vercel production |
+| 2026-05-13 | Resume tailoring | (1) Section order change in `profile/*.md` and Google Docs base docs: Technical Skills → Professional Experience → Projects → Education (previously Projects before Professional Experience); (2) `lib/projects.ts` stop boundary updated from `PROFESSIONAL EXPERIENCE` to `EDUCATION` for project block search and section-end detection; (3) `generate-resume` SYSTEM_PROMPT expanded: added PROJECT SWAP DECISION RULES (≥3 signal threshold, max 1 swap), BULLET REWRITING RULES (max 3 pairs/section, no duplicate opening verbs, AI-gen writing patterns banned), SUITABILITY SCORING (explicit formula: base 40% + bonuses, cap 90%, Tier A ≥70%); (4) `AGENTS.md` expanded with full project architecture documentation |
 
 

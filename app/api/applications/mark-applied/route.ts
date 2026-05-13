@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase/server'
-import { getSheets } from '@/lib/google'
 
 const SHEET_ID = process.env.GOOGLE_SHEET_ID ?? ''
 
@@ -35,33 +34,8 @@ export async function POST(req: NextRequest) {
 
     if (updateErr) throw updateErr
 
-    let sheetsSync = false
-    if (SHEET_ID) {
-      try {
-        const sheets = getSheets()
-        const job = app.seen_jobs
-        await sheets.spreadsheets.values.append({
-          spreadsheetId: SHEET_ID,
-          range: 'Applications!A:H',
-          valueInputOption: 'USER_ENTERED',
-          requestBody: {
-            values: [[
-              now.slice(0, 10),
-              job?.company ?? '',
-              job?.title ?? '',
-              app.classified_role ?? '',
-              app.suitability_pct ?? '',
-              'submitted',
-              app.doc_url ?? '',
-              job?.url ?? '',
-            ]],
-          },
-        })
-        sheetsSync = true
-      } catch (sheetErr) {
-        console.error('Sheets sync failed (non-blocking):', sheetErr)
-      }
-    }
+    // Sheets sync is handled by the frontend's fire-and-forget /api/sheets/sync call
+    const sheetsSync = !!SHEET_ID
 
     return NextResponse.json({
       id: applicationId,
