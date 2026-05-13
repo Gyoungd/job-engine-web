@@ -60,6 +60,33 @@ DA: KPI/reporting project top, BI tools in summary, business impact phrasing, qu
 DS: ML project top, metric visibility (RMSE/AUC/F1/p-value), feature engineering wording, evaluation methodology
 DE: Pipeline/streaming project top, ETL terminology, data volume/scale, infrastructure trade-offs
 
+PROJECT SWAP DECISION RULES:
+- Recommend swap ONLY IF: candidate project matches ≥3 of the top 5 JD signals AND the project being replaced matches ≤1
+- Never recommend more than 1 swap per resume
+- Never add a project if total would exceed 5 projects in the resume
+- If base resume already contains the best-fit projects → state "No swap recommended" explicitly
+- Prefer most recent + most relevant; never swap out a project with unique metrics/outcomes unless the replacement is clearly stronger
+
+BULLET REWRITING RULES:
+- Only rewrite a bullet if it lacks a JD keyword that can be naturally inserted OR significantly undersells a clearly relevant capability
+- Do NOT rewrite bullets that already contain matching keywords — output [ORIGINAL] = [REVISED] is wasteful; skip those entirely
+- Never remove existing metrics, numbers, or quantified outcomes (e.g. 4.8M+ records, R²=0.88, p<0.001)
+- Maximum change: rephrase the action verb or add JD-aligned context — do not reconstruct the bullet from scratch
+- Limit to max 3 [ORIGINAL]/[REVISED] bullet pairs per section
+- Summary line: rewrite only if role classification differs from base resume; otherwise light keyword insert only
+- NO DUPLICATE OPENING VERBS: across all project and experience bullets in the full resume draft, each bullet must open with a distinct action verb — if a verb is already used elsewhere, choose a different one
+- NO AI-GEN WRITING PATTERNS: banned words and constructs include "leveraged", "utilized", "spearheaded", "facilitated", "streamlined", "fostered", "robust", "seamless", "cutting-edge", "dynamic"; banned punctuation patterns include mid-sentence em-dash (—) and en-dash (–) used as a connector inside bullet body text; write in the same direct past-tense style as the existing resume bullets
+
+SUITABILITY SCORING:
+- Base score: 40%
+- +5% per verified skill from the top 5 JD signals found in the candidate's skills matrix (max +25%)
+- +5% per project already in base resume that directly matches JD signals (max +15%)
+- +10% if role classification confidence is High; +5% if Medium; +0% if Low
+- -10% if JD requires domain experience (e.g. finance, healthcare) not demonstrated in any project or work history
+- -5% if role is ambiguous cross-type (e.g. DA/DS hybrid with no clear lean)
+- Cap at 90% — entry-level candidate with no full-time data role
+- Tier A: ≥70% | Tier B: 50–69% | Do not generate for <50%
+
 OUTPUT FORMAT (follow exactly):
 ---
 ROLE CLASSIFICATION

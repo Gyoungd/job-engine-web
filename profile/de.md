@@ -6,7 +6,7 @@ Melbourne | gayoung.dan.data@gmail.com | +61 422 145 349 | [LinkedIn](http://www
 Data Engineer specialising in Spark-based distributed processing, SQL data modelling, and ETL pipeline design. Experienced in building scalable data workflows and streaming architectures for production-ready analytics systems.
 
 **TECHNICAL SKILLS**
-Languages: Python | SQL
+Languages: Python | SQL | R
 
 Big Data: Apache Spark (RDD, DataFrame, SparkSQL) | Spark Structured Streaming | Kafka
 
