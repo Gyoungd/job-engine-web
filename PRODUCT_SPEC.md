@@ -1,8 +1,8 @@
 # Job Engine — Product Specification
 
-> **Last Updated:** 2026-05-05
+> **Last Updated:** 2026-05-14
 > **Owner:** Gayoung Dan (Ina)
-> **Status:** Active Development — Phase 5 ✅ COMPLETE, Phase 5.1 PWA 🟡 PARTIAL, Phase 5.3 ✅ COMPLETE, Generate Docs auto-apply ✅ COMPLETE
+> **Status:** Active Development — Phase 5 ✅ COMPLETE, Phase 5.1 PWA 🟡 PARTIAL, Phase 5.3 ✅ COMPLETE, Generate Docs auto-apply ✅ COMPLETE, Sheets sync v2 + JD archiving ✅ COMPLETE
 > **Repository:** [https://github.com/Gyoungd/job-engine-web](https://github.com/Gyoungd/job-engine-web)
 > **Production URL:** [https://job-engine-web.vercel.app](https://job-engine-web.vercel.app)
 
@@ -130,6 +130,9 @@ seen_jobs           Job listings collected from sources
   - score_reasoning   TEXT — Haiku rationale
   - is_expired        BOOLEAN NOT NULL DEFAULT FALSE — user-marked or auto-filtered stale flag
   - expired_at        TIMESTAMPTZ — timestamp when user marked expired (NULL if not expired)
+  - jd_text           TEXT — full JD text for archiving; populated by: (1) Adzuna API description on new INSERT,
+                      (2) auto-scrape of job URL at generate-resume time, (3) user manual paste via UI
+                      Priority: user paste > already archived > URL scrape > metadata fallback
 
 applications        Resume drafts and submission tracking
   - id (UUID PK), jd_hash (FK → seen_jobs.hash)
@@ -138,6 +141,7 @@ applications        Resume drafts and submission tracking
   - status            'draft' | 'docs_copied' | 'submitted' | 'sent_cold'
                       | 'online_test' | 'interview' | 'offer' | 'rejected' | 'withdrawn'
   - suitability_pct, submitted_at, response_status, notes
+  - job_type          TEXT — e.g. 'Full-time' | 'Contract' | 'Internship' | 'Graduate Program'
   - created_at, updated_at
 
 collection_runs     Cron audit log (one row per run)
@@ -191,7 +195,7 @@ Each tab section maps UI components to API endpoints, with implementation status
 | **Show all link**                      | When ranked result count > 5, show "Show all N in Search →" footer link → routes to Search tab with `score_gte=80&exclude_status=rejected,withdrawn` preset | inline                                                                                            | ✅      |
 | Preview JD button                      | Open JD URL in new tab                                                                                                                                      | External link                                                                                     | ✅      |
 | **Expired button (idle state only)**   | Mark job as expired — hides from queue immediately (optimistic UI); blocked if application exists (409)                                                     | `PATCH /api/jobs/:hash/expire`                                                                    | ✅      |
-| Generate resume button                 | Trigger Sonnet resume tailoring (idle state only)                                                                                                           | `POST /api/generate-resume`                                                                       | ✅      |
+| Generate resume button                 | Trigger Sonnet resume tailoring (idle state only); "Paste JD" toggle expands optional textarea — pasted text sent as `jd_text`, archived to `seen_jobs.jd_text`, and used as Claude prompt instead of metadata fallback | `POST /api/generate-resume` | ✅      |
 | Drafts ready section                   | Show pending drafts (max 3)                                                                                                                                 | `GET /api/applications?status=draft,docs_copied&limit=3`                                          | ✅      |
 | **Withdraw button (drafts section)**   | Withdraw a draft from Home mini-card without navigating to Pipeline                                                                                         | `PATCH /api/applications/:id` (`status='withdrawn'`)                                              | ✅      |
 | Pipeline card                          | Submitted / Pending / Response counts                                                                                                                       | `GET /api/applications/summary`                                                                   | ✅      |
@@ -229,7 +233,7 @@ Each tab section maps UI components to API endpoints, with implementation status
 | Search input            | Text search by title + company                 | `GET /api/queue?q=`               | ✅      |
 | Sort dropdown           | Newest / Oldest / Score desc                   | `GET /api/queue?sort=`            | ✅      |
 | Result list (paginated) | Job cards with same layout as Home top picks   | `GET /api/queue?limit=20&offset=` | ✅      |
-| Generate resume button  | Same as Home tab                               | `POST /api/generate-resume`       | ✅      |
+| Generate resume button  | Same as Home tab — includes "Paste JD" toggle  | `POST /api/generate-resume`       | ✅      |
 | **Expired button (idle state only)** | Same as Home tab — mark job expired, hide immediately | `PATCH /api/jobs/:hash/expire` | ✅      |
 | Sticky header           | 검색 + 필터 + 정렬 고정, 결과 리스트만 스크롤                   | CSS `position: sticky`            | ✅      |
 
@@ -354,7 +358,7 @@ All queue responses permanently exclude:
 | Method | Path                   | Purpose                             | Status |
 | ------ | ---------------------- | ----------------------------------- | ------ |
 | POST   | `/api/rank`            | Score N unscored jobs with Haiku    | ✅      |
-| POST   | `/api/generate-resume` | Generate resume-changes with Sonnet | ✅      |
+| POST   | `/api/generate-resume` | Generate resume-changes with Sonnet. JD text resolution order: (1) `jd_text` in request body (user paste), (2) `seen_jobs.jd_text` already archived, (3) auto-fetch from `job.url` (8s timeout, HTML stripped), (4) metadata fallback. Resolved text archived to `seen_jobs.jd_text` if not already set. | ✅      |
 
 
 ### Document automation
@@ -399,7 +403,7 @@ All queue responses permanently exclude:
 
 | Method | Path               | Purpose                                                                        | Status |
 | ------ | ------------------ | ------------------------------------------------------------------------------ | ------ |
-| POST   | `/api/sheets/sync` | Full Supabase → Sheets sync (submitted/interview/offer/rejected + Response 컬럼) | ✅      |
+| POST   | `/api/sheets/sync` | Full Supabase → Sheets sync. Uses `seen_jobs!left` join (apps without seen_jobs still synced). JD URL column written as `=HYPERLINK()` formula. New rows inserted via `InsertDimensionRequest` with `inheritFromBefore: true` to preserve Google Sheets Table1 formatting (dropdowns, date pickers, conditional formatting). | ✅      |
 
 
 ### Configuration
@@ -1021,5 +1025,6 @@ View in pipeline button:
 | 2026-05-05 | Phase 5.3      | Stale job handling: `is_expired` DB column + migration, `PATCH /api/jobs/:hash/expire`, 14-day filter via `max_age_days=14` param (Home New Jobs only; Search tab unfiltered), "Expired" button gray (Home+Search, idle only, optimistic UI), "Withdraw" button gray (Drafts tab + Home Drafts mini-card, draft/docs_copied only), rename "Top picks" → "New Jobs" |
 | 2026-05-05 | Generate Docs  | Fix Generate Docs: (1) reverted copy-base to user OAuth (GMAIL_TOKEN_JSON) to avoid service account Drive quota exhaustion; (2) `generate-resume` now reads `/profile/{da\|ds\|de}.md` + stripMarkdown() → base resume text fed to Claude prompt so [ORIGINAL] matches actual doc text; (3) `copy-base` auto-applies [ORIGINAL]/[REVISED] pairs via Google Docs API `batchUpdate replaceAllText` after copy (Service Account); (4) added `outputFileTracingIncludes` to next.config.ts for Vercel file bundling; (5) added GDOC_BASE_{DA\|DS\|DE} env vars to Vercel production |
 | 2026-05-13 | Resume tailoring | (1) Section order change in `profile/*.md` and Google Docs base docs: Technical Skills → Professional Experience → Projects → Education (previously Projects before Professional Experience); (2) `lib/projects.ts` stop boundary updated from `PROFESSIONAL EXPERIENCE` to `EDUCATION` for project block search and section-end detection; (3) `generate-resume` SYSTEM_PROMPT expanded: added PROJECT SWAP DECISION RULES (≥3 signal threshold, max 1 swap), BULLET REWRITING RULES (max 3 pairs/section, no duplicate opening verbs, AI-gen writing patterns banned), SUITABILITY SCORING (explicit formula: base 40% + bonuses, cap 90%, Tier A ≥70%); (4) `AGENTS.md` expanded with full project architecture documentation |
+| 2026-05-14 | Sheets sync v2 + JD archiving | **Sheets sync fixes:** (1) `seen_jobs!inner` → `!left` join — apps without seen_jobs record no longer silently dropped from sync; (2) JD URL column (E) now written as `=HYPERLINK("url","[URL]")` formula for clickable links; (3) new rows inserted via `InsertDimensionRequest + inheritFromBefore:true` instead of `values.append` — preserves Google Sheets Table1 formatting (status dropdowns, date pickers, conditional formatting); (4) E column also updated on existing row sync. **JD archiving:** (1) `generate-resume` adds `fetchJdText()` — auto-scrapes job URL (8s timeout) when `jd_text` not provided, strips HTML, archives to `seen_jobs.jd_text`; resolution priority: user paste > archived > URL scrape > metadata fallback; (2) Adzuna pipeline (`supabase_utils.py`) now stores `job.description` → `seen_jobs.jd_text` on new INSERT; (3) Home + Search tabs: "Paste JD" toggle button expands collapsible textarea — user can paste full JD before generating resume; pasted text sent as `jd_text` in request body |
 
 
