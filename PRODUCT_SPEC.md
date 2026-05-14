@@ -1,8 +1,8 @@
 # Job Engine — Product Specification
 
-> **Last Updated:** 2026-05-14
+> **Last Updated:** 2026-05-15
 > **Owner:** Gayoung Dan (Ina)
-> **Status:** Active Development — Phase 5 ✅ COMPLETE, Phase 5.1 PWA 🟡 PARTIAL, Phase 5.3 ✅ COMPLETE, Generate Docs auto-apply ✅ COMPLETE, Sheets sync v2 + JD archiving ✅ COMPLETE
+> **Status:** Active Development — Phase 5 ✅ COMPLETE, Phase 5.1 PWA 🟡 PARTIAL, Phase 5.3 ✅ COMPLETE, Generate Docs auto-apply ✅ COMPLETE, Sheets sync v2 + JD archiving ✅ COMPLETE, URL dedup fix ✅, SYSTEM_PROMPT restructure ✅
 > **Repository:** [https://github.com/Gyoungd/job-engine-web](https://github.com/Gyoungd/job-engine-web)
 > **Production URL:** [https://job-engine-web.vercel.app](https://job-engine-web.vercel.app)
 
@@ -533,6 +533,9 @@ ON CONFLICT (hash) DO UPDATE SET
   source_region = EXCLUDED.source_region;
 ```
 
+**URL dedup implementation note (2026-05-15 fix):**
+Layer 1 originally used `_normalize_url()` + ILIKE on the full normalized path. This silently failed for LinkedIn URLs because stored URLs retain the `/comm/` prefix while `_normalize_url()` strips it — making the ILIKE pattern a non-match. Fixed via `_extract_job_id()`: extracts the numeric job ID from any URL variant and matches `ILIKE '%/jobs/view/{id}%'`. Handles `/comm/`, trailing slash, and query param differences uniformly.
+
 Existing `_utils.py` (SQLite layer) remains untouched — supports local/dev fallback.
 
 **Acceptance criteria:**
@@ -1026,5 +1029,6 @@ View in pipeline button:
 | 2026-05-05 | Generate Docs  | Fix Generate Docs: (1) reverted copy-base to user OAuth (GMAIL_TOKEN_JSON) to avoid service account Drive quota exhaustion; (2) `generate-resume` now reads `/profile/{da\|ds\|de}.md` + stripMarkdown() → base resume text fed to Claude prompt so [ORIGINAL] matches actual doc text; (3) `copy-base` auto-applies [ORIGINAL]/[REVISED] pairs via Google Docs API `batchUpdate replaceAllText` after copy (Service Account); (4) added `outputFileTracingIncludes` to next.config.ts for Vercel file bundling; (5) added GDOC_BASE_{DA\|DS\|DE} env vars to Vercel production |
 | 2026-05-13 | Resume tailoring | (1) Section order change in `profile/*.md` and Google Docs base docs: Technical Skills → Professional Experience → Projects → Education (previously Projects before Professional Experience); (2) `lib/projects.ts` stop boundary updated from `PROFESSIONAL EXPERIENCE` to `EDUCATION` for project block search and section-end detection; (3) `generate-resume` SYSTEM_PROMPT expanded: added PROJECT SWAP DECISION RULES (≥3 signal threshold, max 1 swap), BULLET REWRITING RULES (max 3 pairs/section, no duplicate opening verbs, AI-gen writing patterns banned), SUITABILITY SCORING (explicit formula: base 40% + bonuses, cap 90%, Tier A ≥70%); (4) `AGENTS.md` expanded with full project architecture documentation |
 | 2026-05-14 | Sheets sync v2 + JD archiving | **Sheets sync fixes:** (1) `seen_jobs!inner` → `!left` join — apps without seen_jobs record no longer silently dropped from sync; (2) JD URL column (E) now written as `=HYPERLINK("url","[URL]")` formula for clickable links; (3) new rows inserted via `InsertDimensionRequest + inheritFromBefore:true` instead of `values.append` — preserves Google Sheets Table1 formatting (status dropdowns, date pickers, conditional formatting); (4) E column also updated on existing row sync. **JD archiving:** (1) `generate-resume` adds `fetchJdText()` — auto-scrapes job URL (8s timeout) when `jd_text` not provided, strips HTML, archives to `seen_jobs.jd_text`; resolution priority: user paste > archived > URL scrape > metadata fallback; (2) Adzuna pipeline (`supabase_utils.py`) now stores `job.description` → `seen_jobs.jd_text` on new INSERT; (3) Home + Search tabs: "Paste JD" toggle button expands collapsible textarea — user can paste full JD before generating resume; pasted text sent as `jd_text` in request body |
+| 2026-05-15 | Bug fixes | **(1) `supabase_utils.py` URL dedup fix:** Layer 1 dedup was silently failing — `_normalize_url()` strips `/comm/` but stored LinkedIn URLs retain it, so ILIKE pattern never matched. Added `_extract_job_id()` to extract numeric job ID; Layer 1 now uses `ILIKE '%/jobs/view/{id}%'` — handles `/comm/` prefix, trailing slash, and query param variants uniformly. **(2) Search tab duplicate cleanup:** 9 trailing-slash duplicate pairs (same LinkedIn job ID, one stored with `/` suffix and one without) removed from DB via SQL. Root cause was the same Layer 1 dedup bug. **(3) `generate-resume` SYSTEM_PROMPT restructure:** RESUME TRIMMING PRINCIPLE moved out of OUTPUT FORMAT block (was being output verbatim); "max 5 total bullets" rule removed (conflicted with per-section max-3 rule, which is retained); CRITICAL RULES ordering fixed — rules appear before examples, placeholder last. |
 
 

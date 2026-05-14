@@ -61,6 +61,25 @@ def _normalize_url(url: str) -> str:
         return url
 
 
+def _extract_job_id(url: str) -> str | None:
+    """
+    Extract numeric job ID from LinkedIn or Seek URL.
+    Handles /comm/ prefix and trailing slash variations.
+    LinkedIn: .../jobs/view/4409223195/... → "4409223195"
+    Seek:     .../job/12345...             → "12345"
+    """
+    if not url:
+        return None
+    import re
+    m = re.search(r"/jobs/view/(\d+)", url)
+    if m:
+        return m.group(1)
+    m = re.search(r"/job/(\d+)", url)
+    if m:
+        return m.group(1)
+    return None
+
+
 def upsert_job(job: JobPost, classified_role: str = "unknown", queued: bool = False) -> bool:
     """
     Atomic upsert into Supabase seen_jobs.
@@ -95,24 +114,26 @@ def upsert_job(job: JobPost, classified_role: str = "unknown", queued: bool = Fa
 
     client = get_client()
 
-    # --- Layer 1: URL-based dedup (catches "Vanguard" vs "Vanguard Australia") ---
+    # --- Layer 1: Job-ID-based dedup (handles /comm/ prefix + trailing slash variants) ---
     existing = None
     if job.url:
-        norm_url = _normalize_url(job.url)
-        # ilike match on the stable path portion (e.g. linkedin.com/jobs/view/12345)
-        url_match = (
-            client.table("seen_jobs")
-            .select("hash, times_seen, queued, url")
-            .ilike("url", f"%{norm_url}%")
-            .limit(1)
-            .execute()
-        )
-        if url_match.data:
-            existing = url_match.data[0]
-            logger.debug(
-                f"[URL-DEDUP] Matched existing url for {job.title} "
-                f"(existing hash={existing['hash'][:12]}, new hash={job.hash[:12]})"
+        job_id = _extract_job_id(job.url)
+        if job_id:
+            # Match any stored URL that contains the same numeric job ID segment
+            pattern = f"%/jobs/view/{job_id}%" if "/jobs/view/" in job.url else f"%/job/{job_id}%"
+            url_match = (
+                client.table("seen_jobs")
+                .select("hash, times_seen, queued, url")
+                .ilike("url", pattern)
+                .limit(1)
+                .execute()
             )
+            if url_match.data:
+                existing = url_match.data[0]
+                logger.debug(
+                    f"[URL-DEDUP] Matched existing url for {job.title} "
+                    f"(existing hash={existing['hash'][:12]}, new hash={job.hash[:12]})"
+                )
 
     # --- Layer 2: Hash-based dedup (fallback) ---
     if not existing:
