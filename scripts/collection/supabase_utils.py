@@ -128,6 +128,8 @@ def upsert_job(job: JobPost, classified_role: str = "unknown", queued: bool = Fa
 
     if not existing:
         # NEW — atomic INSERT (PK conflict-safe via upsert)
+        if job.description:
+            payload["jd_text"] = job.description
         client.table("seen_jobs").upsert(payload, on_conflict="hash").execute()
         logger.info(f"[NEW] {job.source} | {job.company} | {job.title}")
         return True

@@ -30,16 +30,28 @@ function todayAU(): string {
   return formatDateAU(new Date().toISOString())
 }
 
+function hyperlinkCell(url: string | null | undefined): string {
+  if (!url) return ''
+  const safe = url.replace(/"/g, '%22')
+  return `=HYPERLINK("${safe}","[URL]")`
+}
+
+async function getOverviewSheetId(sheets: ReturnType<typeof getSheets>): Promise<number> {
+  const meta = await sheets.spreadsheets.get({ spreadsheetId: SHEET_ID })
+  const sheet = meta.data.sheets?.find(s => s.properties?.title === 'Overview')
+  return sheet?.properties?.sheetId ?? 0
+}
+
 export async function POST() {
   try {
     if (!SHEET_ID) {
       return NextResponse.json({ error: 'GOOGLE_SHEET_ID not configured' }, { status: 500 })
     }
 
-    // 1. Fetch apps from Supabase (only statuses that belong in tracker)
+    // 1. Fetch apps from Supabase (left join so apps without seen_jobs are still included)
     const { data: apps, error } = await supabaseAdmin
       .from('applications')
-      .select('*, seen_jobs!inner(title, company, location, url, classified_role)')
+      .select('*, seen_jobs!left(title, company, location, url, classified_role)')
       .in('status', ['draft', 'docs_copied', 'submitted', 'sent_cold', 'online_test', 'interview', 'offer', 'rejected', 'withdrawn'])
       .order('submitted_at', { ascending: true, nullsFirst: false })
 
@@ -92,22 +104,22 @@ export async function POST() {
         updateData.push({ range: `Overview!J${rowNum}`, values: [[todayAU()]] })
         updateData.push({ range: `Overview!K${rowNum}`, values: [[onlineTest]] })
         updateData.push({ range: `Overview!L${rowNum}`, values: [[interviewScheduled]] })
+        if (job?.url) updateData.push({ range: `Overview!E${rowNum}`, values: [[hyperlinkCell(job.url)]] })
         if (app.doc_url) updateData.push({ range: `Overview!M${rowNum}`, values: [[app.doc_url]] })
         if (app.notes) updateData.push({ range: `Overview!N${rowNum}`, values: [[app.notes]] })
-        // Phase 2: job_type → H, due_date → G
         if (app.job_type) updateData.push({ range: `Overview!H${rowNum}`, values: [[app.job_type]] })
         if (app.due_date) updateData.push({ range: `Overview!G${rowNum}`, values: [[app.due_date]] })
       } else {
-        // New row — append with all columns A-P
+        // New row — collect for batch insert
         appendRows.push([
           formatDateAU(app.submitted_at ?? app.created_at),  // A: Date Applied
           job?.company ?? '',                                  // B: Company Name
           statusLabel,                                         // C: Status
           app.classified_role ?? '',                           // D: Role Type
-          job?.url ?? '',                                      // E: JD URL
+          hyperlinkCell(job?.url),                             // E: JD URL (hyperlink formula)
           '',                                                  // F: Position Upload Date (manual)
-          app.due_date ?? '',                                  // G: Due Date (Phase 2)
-          app.job_type ?? '',                                  // H: Job Type (Phase 2)
+          app.due_date ?? '',                                  // G: Due Date
+          app.job_type ?? '',                                  // H: Job Type
           job?.location ?? '',                                 // I: Location
           todayAU(),                                           // J: Follow-up Date
           onlineTest,                                          // K: Online Test
@@ -131,13 +143,38 @@ export async function POST() {
       })
     }
 
-    // 5. Append new rows (sequentially to preserve order)
-    for (const row of appendRows) {
-      await sheets.spreadsheets.values.append({
+    // 5. Insert new rows inside the table using InsertDimensionRequest
+    //    (inheritFromBefore: true copies dropdowns, date format, conditional formatting from row above)
+    if (appendRows.length > 0) {
+      const overviewSheetId = await getOverviewSheetId(sheets)
+      const insertAt = existingRows.length // 0-based index: after last existing row
+
+      await sheets.spreadsheets.batchUpdate({
         spreadsheetId: SHEET_ID,
-        range: 'Overview!A:P',
-        valueInputOption: 'USER_ENTERED',
-        requestBody: { values: [row] },
+        requestBody: {
+          requests: [{
+            insertDimension: {
+              range: {
+                sheetId: overviewSheetId,
+                dimension: 'ROWS',
+                startIndex: insertAt,
+                endIndex: insertAt + appendRows.length,
+              },
+              inheritFromBefore: true,
+            },
+          }],
+        },
+      })
+
+      await sheets.spreadsheets.values.batchUpdate({
+        spreadsheetId: SHEET_ID,
+        requestBody: {
+          valueInputOption: 'USER_ENTERED',
+          data: appendRows.map((row, i) => ({
+            range: `Overview!A${insertAt + 1 + i}`,
+            values: [row],
+          })),
+        },
       })
     }
 

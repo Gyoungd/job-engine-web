@@ -277,6 +277,8 @@ export default function Home() {
 
   /* ─── Withdraw draft state ─── */
   const [withdrawingDraft, setWithdrawingDraft] = useState<Record<string, boolean>>({})
+  const [pasteJdText, setPasteJdText] = useState<Record<string, string>>({})
+  const [showPasteJd, setShowPasteJd] = useState<Record<string, boolean>>({})
 
   /* ─── Pipeline state ─── */
   const [pipelineApps, setPipelineApps] = useState<Application[]>([])
@@ -340,15 +342,17 @@ export default function Home() {
   }
 
   /* ─── Generate resume (Sonnet) ─── */
-  async function handleGenerate(hash: string) {
+  async function handleGenerate(hash: string, jdText?: string) {
     const existingDraft = getQueueApplicationForHash(hash, jobs, searchJobs)
     if (existingDraft || generating[hash] === 'loading' || generating[hash] === 'done') return
     setGenerating(prev => ({ ...prev, [hash]: 'loading' }))
     try {
+      const body: Record<string, string> = { jd_hash: hash }
+      if (jdText?.trim()) body.jd_text = jdText.trim()
       const res = await fetch('/api/generate-resume', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ jd_hash: hash }),
+        body: JSON.stringify(body),
       })
       const data = await res.json()
       if (res.ok) {
@@ -803,25 +807,54 @@ export default function Home() {
                     const rightButton = (() => {
                       if (cardState === 'idle') {
                         return (
-                          <button
-                            type="button"
-                            onClick={() => handleGenerate(job.hash)}
-                            disabled={genState !== 'idle'}
-                            style={{
-                              flex: 1, padding: 9, borderRadius: 8, fontSize: 12, fontWeight: 600,
-                              border: 'none', textAlign: 'center', cursor: genState === 'idle' ? 'pointer' : 'default',
-                              background: genState === 'idle' ? '#b4cde7'
-                                : genState === 'error' ? '#c0392b'
-                                : '#1e3a5f',
-                              color: genState === 'idle' ? '#4682bf' : 'white',
-                              opacity: genState === 'loading' ? 0.7 : 1,
-                            }}
-                          >
-                            {genState === 'idle' ? 'Generate resume'
-                              : genState === 'loading' ? 'Generating...'
-                              : genState === 'error' ? '✗ Failed'
-                              : '✓ Resume Generated'}
-                          </button>
+                          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                            {showPasteJd[job.hash] && (
+                              <textarea
+                                placeholder="Paste full JD text here (optional — improves tailoring and archives the posting)"
+                                value={pasteJdText[job.hash] ?? ''}
+                                onChange={e => setPasteJdText(prev => ({ ...prev, [job.hash]: e.target.value }))}
+                                rows={5}
+                                style={{
+                                  width: '100%', padding: 8, borderRadius: 8, fontSize: 11,
+                                  border: '1px solid #d4d8de', resize: 'vertical', fontFamily: 'inherit',
+                                  color: '#333', background: '#fafbfc', boxSizing: 'border-box',
+                                }}
+                              />
+                            )}
+                            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                              <button
+                                type="button"
+                                onClick={() => setShowPasteJd(prev => ({ ...prev, [job.hash]: !prev[job.hash] }))}
+                                style={{
+                                  padding: '9px 10px', borderRadius: 8, fontSize: 11, fontWeight: 600,
+                                  border: '1px solid #d4d8de', cursor: 'pointer',
+                                  background: showPasteJd[job.hash] ? '#e8f0fa' : '#f0f2f4',
+                                  color: '#6b7785', whiteSpace: 'nowrap', flexShrink: 0,
+                                }}
+                              >
+                                {showPasteJd[job.hash] ? 'Hide JD' : 'Paste JD'}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleGenerate(job.hash, pasteJdText[job.hash])}
+                                disabled={genState !== 'idle'}
+                                style={{
+                                  flex: 1, padding: 9, borderRadius: 8, fontSize: 12, fontWeight: 600,
+                                  border: 'none', textAlign: 'center', cursor: genState === 'idle' ? 'pointer' : 'default',
+                                  background: genState === 'idle' ? '#b4cde7'
+                                    : genState === 'error' ? '#c0392b'
+                                    : '#1e3a5f',
+                                  color: genState === 'idle' ? '#4682bf' : 'white',
+                                  opacity: genState === 'loading' ? 0.7 : 1,
+                                }}
+                              >
+                                {genState === 'idle' ? 'Generate resume'
+                                  : genState === 'loading' ? 'Generating...'
+                                  : genState === 'error' ? '✗ Failed'
+                                  : '✓ Resume Generated'}
+                              </button>
+                            </div>
+                          </div>
                         )
                       }
                       if (cardState === 'docs_copied' && application?.doc_url) {
@@ -1619,24 +1652,53 @@ export default function Home() {
                             </button>
                           )}
                           {cardState === 'idle' ? (
-                            <button
-                              type="button"
-                              onClick={() => handleGenerate(job.hash)}
-                              disabled={genState !== 'idle'}
-                              style={{
-                                flex: 1, padding: 9, borderRadius: 8, fontSize: 12, fontWeight: 600,
-                                border: 'none', textAlign: 'center',
-                                cursor: genState === 'idle' ? 'pointer' : 'default',
-                                background: genState === 'done' ? '#1e3a5f' : genState === 'error' ? '#c0392b' : '#b4cde7',
-                                color: genState === 'done' || genState === 'error' ? 'white' : '#4682bf',
-                                opacity: genState === 'loading' ? 0.7 : 1,
-                              }}
-                            >
-                              {genState === 'loading' ? 'Generating...'
-                                : genState === 'done' ? '✓ Resume Generated'
-                                : genState === 'error' ? '✗ Failed'
-                                : 'Generate resume'}
-                            </button>
+                            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                              {showPasteJd[job.hash] && (
+                                <textarea
+                                  placeholder="Paste full JD text here (optional — improves tailoring and archives the posting)"
+                                  value={pasteJdText[job.hash] ?? ''}
+                                  onChange={e => setPasteJdText(prev => ({ ...prev, [job.hash]: e.target.value }))}
+                                  rows={5}
+                                  style={{
+                                    width: '100%', padding: 8, borderRadius: 8, fontSize: 11,
+                                    border: '1px solid #d4d8de', resize: 'vertical', fontFamily: 'inherit',
+                                    color: '#333', background: '#fafbfc', boxSizing: 'border-box',
+                                  }}
+                                />
+                              )}
+                              <div style={{ display: 'flex', gap: 6 }}>
+                                <button
+                                  type="button"
+                                  onClick={() => setShowPasteJd(prev => ({ ...prev, [job.hash]: !prev[job.hash] }))}
+                                  style={{
+                                    padding: '9px 10px', borderRadius: 8, fontSize: 11, fontWeight: 600,
+                                    border: '1px solid #d4d8de', cursor: 'pointer',
+                                    background: showPasteJd[job.hash] ? '#e8f0fa' : '#f0f2f4',
+                                    color: '#6b7785', whiteSpace: 'nowrap', flexShrink: 0,
+                                  }}
+                                >
+                                  {showPasteJd[job.hash] ? 'Hide JD' : 'Paste JD'}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleGenerate(job.hash, pasteJdText[job.hash])}
+                                  disabled={genState !== 'idle'}
+                                  style={{
+                                    flex: 1, padding: 9, borderRadius: 8, fontSize: 12, fontWeight: 600,
+                                    border: 'none', textAlign: 'center',
+                                    cursor: genState === 'idle' ? 'pointer' : 'default',
+                                    background: genState === 'done' ? '#1e3a5f' : genState === 'error' ? '#c0392b' : '#b4cde7',
+                                    color: genState === 'done' || genState === 'error' ? 'white' : '#4682bf',
+                                    opacity: genState === 'loading' ? 0.7 : 1,
+                                  }}
+                                >
+                                  {genState === 'loading' ? 'Generating...'
+                                    : genState === 'done' ? '✓ Resume Generated'
+                                    : genState === 'error' ? '✗ Failed'
+                                    : 'Generate resume'}
+                                </button>
+                              </div>
+                            </div>
                           ) : cardState === 'docs_copied' && application?.doc_url ? (
                             <a href={application.doc_url} target="_blank" rel="noopener noreferrer" style={{
                               flex: 1, padding: 9, borderRadius: 8, fontSize: 12, fontWeight: 600,

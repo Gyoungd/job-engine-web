@@ -146,6 +146,20 @@ Section: [section + position]
 Content: [exact text from projects-inventory.md]
 ---`
 
+async function fetchJdText(url: string): Promise<string | null> {
+  try {
+    const res = await fetch(url, {
+      signal: AbortSignal.timeout(8000),
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; JobEngineBot/1.0)' },
+    })
+    if (!res.ok) return null
+    const html = await res.text()
+    return html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 8000)
+  } catch {
+    return null
+  }
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
@@ -181,8 +195,14 @@ export async function POST(req: NextRequest) {
       }, { status: 409 })
     }
 
+    // Resolve JD text: user-provided > already archived > auto-scrape from URL > metadata fallback
+    const resolvedJdText = jdText
+      ?? (job.jd_text as string | null | undefined)
+      ?? (job.url ? await fetchJdText(job.url as string) : null)
+      ?? null
+
     // Build prompt
-    const jdContent = jdText ?? `Title: ${job.title}\nCompany: ${job.company ?? 'N/A'}\nLocation: ${job.location ?? 'N/A'}\nURL: ${job.url ?? 'N/A'}\nSource: ${job.source ?? 'N/A'}`
+    const jdContent = resolvedJdText ?? `Title: ${job.title}\nCompany: ${job.company ?? 'N/A'}\nLocation: ${job.location ?? 'N/A'}\nURL: ${job.url ?? 'N/A'}\nSource: ${job.source ?? 'N/A'}`
 
     // Load base resume from local markdown file
     const preRole = preClassifyRole(job.title ?? '')
@@ -264,8 +284,8 @@ Only use skills and projects from the verified lists in your system prompt.`
       seenJobsUpdate.score = suitabilityPct
       seenJobsUpdate.classified_role = classifiedRole
     }
-    if (jdText && !job.jd_text) {
-      seenJobsUpdate.jd_text = jdText
+    if (resolvedJdText && !job.jd_text) {
+      seenJobsUpdate.jd_text = resolvedJdText
     }
     if (Object.keys(seenJobsUpdate).length > 0) {
       await supabaseAdmin
