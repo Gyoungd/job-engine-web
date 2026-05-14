@@ -41,6 +41,11 @@ function stripMarkdown(text: string): string {
 
 const SYSTEM_PROMPT = `You are a resume tailoring engine for Gayoung Dan (Ina), a recent Master of Data Science graduate from Monash University.
 
+You operate in three roles simultaneously:
+1. CAREER COUNSELOR: Assess genuine fit. Be direct about strengths and weaknesses relative to this role.
+2. CAREER STRATEGIST: Identify the 3 most critical gaps between candidate's current profile and role requirements. Prioritise gaps that resume edits can actually close.
+3. PRECISION RESUME EDITOR: Make only edits that close the highest-impact gaps. Fewer, sharper changes beat comprehensive rewrites.
+
 HARD CONSTRAINTS — NEVER VIOLATE:
 - NEVER rewrite entire resume
 - NEVER change resume formatting or layout
@@ -87,6 +92,11 @@ SUITABILITY SCORING:
 - Cap at 90% — entry-level candidate with no full-time data role
 - Tier A: ≥70% | Tier B: 50–69% | Do not generate for <50%
 
+RESUME TRIMMING PRINCIPLE (apply before writing any [ORIGINAL]/[REVISED]):
+- Only make a change if it closes a gap identified in CAREER STRATEGY. If not, skip it.
+- Priority order: Summary > Skills > Experience bullets > Project bullets
+- Adding a missing JD keyword beats rephrasing a bullet that already conveys the right idea
+
 OUTPUT FORMAT (follow exactly):
 ---
 ROLE CLASSIFICATION
@@ -122,9 +132,15 @@ Remove: [weaker project or "None"]
 Add: [stronger from Project Base or "None"]
 Reason: [1-2 sentences]
 ---
-RESUME CHANGES
-[List EVERY edit as [ORIGINAL]/[REVISED] pairs]
+CAREER STRATEGY
+3 critical gaps between this candidate and role requirements:
+Gap 1: [Specific gap] — Resume action: [what edit addresses this, or "not closeable via resume — address in cover letter/interview"]
+Gap 2: [Specific gap] — Resume action: [...]
+Gap 3: [Specific gap] — Resume action: [...]
 
+Counselor note: [1-2 sentences — overall candidacy strength, what to emphasise, any red flags]
+---
+RESUME CHANGES
 CRITICAL RULES FOR [ORIGINAL]/[REVISED]:
 - [ORIGINAL] MUST be copied VERBATIM from the CURRENT BASE RESUME TEXT provided in the user prompt
 - NEVER invent, paraphrase, or describe the original — copy the exact characters
@@ -144,9 +160,15 @@ Action: [Add / Replace]
 Project: [name]
 Section: [section + position]
 Content: [exact text from projects-inventory.md]
+
+[List ALL edits below, following the format above]
 ---`
 
+// LinkedIn and Seek require authentication — fetching their URLs returns a login page, not JD content
+const AUTH_WALLED = /linkedin\.com|seek\.com\.au/i
+
 async function fetchJdText(url: string): Promise<string | null> {
+  if (AUTH_WALLED.test(url)) return null
   try {
     const res = await fetch(url, {
       signal: AbortSignal.timeout(8000),
@@ -165,6 +187,7 @@ export async function POST(req: NextRequest) {
     const body = await req.json()
     const jdHash: string = body.jd_hash
     const jdText: string | undefined = body.jd_text
+    const force: boolean = body.force === true
 
     if (!jdHash) {
       return NextResponse.json({ error: 'jd_hash is required' }, { status: 400 })
@@ -188,7 +211,7 @@ export async function POST(req: NextRequest) {
       .eq('jd_hash', jdHash)
       .limit(1)
 
-    if (existing && existing.length > 0) {
+    if (existing && existing.length > 0 && !force) {
       return NextResponse.json({
         error: 'Resume already generated for this JD',
         application_id: existing[0].id,
@@ -257,25 +280,50 @@ Only use skills and projects from the verified lists in your system prompt.`
       .slice(0, 30)
     const folderPath = `${today}_${companySlug}_${classifiedRole}`
 
-    // Store in applications table
-    const { data: app, error: appErr } = await supabaseAdmin
-      .from('applications')
-      .insert({
-        jd_hash: jdHash,
-        folder_path: folderPath,
-        classified_role: classifiedRole,
-        resume_changes: result,
-        status: 'draft',
-        suitability_pct: suitabilityPct,
-        job_type: jobType,
-        due_date: dueDate,
-      })
-      .select()
-      .single()
+    // Store or update in applications table
+    let app: { id: string } | null = null
+    if (force && existing?.[0]) {
+      const { data: updated, error: appErr } = await supabaseAdmin
+        .from('applications')
+        .update({
+          resume_changes: result,
+          suitability_pct: suitabilityPct,
+          classified_role: classifiedRole,
+          job_type: jobType,
+          due_date: dueDate,
+        })
+        .eq('id', existing[0].id)
+        .select('id')
+        .single()
+      if (appErr) {
+        console.error('Failed to update application:', appErr)
+        return NextResponse.json({ error: 'Failed to update application' }, { status: 500 })
+      }
+      app = updated
+    } else {
+      const { data: inserted, error: appErr } = await supabaseAdmin
+        .from('applications')
+        .insert({
+          jd_hash: jdHash,
+          folder_path: folderPath,
+          classified_role: classifiedRole,
+          resume_changes: result,
+          status: 'draft',
+          suitability_pct: suitabilityPct,
+          job_type: jobType,
+          due_date: dueDate,
+        })
+        .select('id')
+        .single()
+      if (appErr) {
+        console.error('Failed to save application:', appErr)
+        return NextResponse.json({ error: 'Failed to save application' }, { status: 500 })
+      }
+      app = inserted
+    }
 
-    if (appErr) {
-      console.error('Failed to save application:', appErr)
-      return NextResponse.json({ error: 'Failed to save application' }, { status: 500 })
+    if (!app) {
+      return NextResponse.json({ error: 'Failed to persist application' }, { status: 500 })
     }
 
     // Update score + jd_text on seen_jobs

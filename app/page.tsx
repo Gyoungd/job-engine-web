@@ -279,6 +279,8 @@ export default function Home() {
   const [withdrawingDraft, setWithdrawingDraft] = useState<Record<string, boolean>>({})
   const [pasteJdText, setPasteJdText] = useState<Record<string, string>>({})
   const [showPasteJd, setShowPasteJd] = useState<Record<string, boolean>>({})
+  const [jdSaveState, setJdSaveState] = useState<Record<string, 'idle' | 'saving' | 'saved'>>({})
+  const [regenerating, setRegenerating] = useState<Record<string, boolean>>({})
 
   /* ─── Pipeline state ─── */
   const [pipelineApps, setPipelineApps] = useState<Application[]>([])
@@ -342,13 +344,20 @@ export default function Home() {
   }
 
   /* ─── Generate resume (Sonnet) ─── */
-  async function handleGenerate(hash: string, jdText?: string) {
-    const existingDraft = getQueueApplicationForHash(hash, jobs, searchJobs)
-    if (existingDraft || generating[hash] === 'loading' || generating[hash] === 'done') return
-    setGenerating(prev => ({ ...prev, [hash]: 'loading' }))
+  async function handleGenerate(hash: string, jdText?: string, force = false) {
+    if (!force) {
+      const existingDraft = getQueueApplicationForHash(hash, jobs, searchJobs)
+      if (existingDraft || generating[hash] === 'loading' || generating[hash] === 'done') return
+    }
+    if (force) {
+      setRegenerating(prev => ({ ...prev, [hash]: true }))
+    } else {
+      setGenerating(prev => ({ ...prev, [hash]: 'loading' }))
+    }
     try {
-      const body: Record<string, string> = { jd_hash: hash }
+      const body: Record<string, unknown> = { jd_hash: hash }
       if (jdText?.trim()) body.jd_text = jdText.trim()
+      if (force) body.force = true
       const res = await fetch('/api/generate-resume', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -356,17 +365,19 @@ export default function Home() {
       })
       const data = await res.json()
       if (res.ok) {
-        setGenerating(prev => ({ ...prev, [hash]: 'done' }))
+        if (!force) setGenerating(prev => ({ ...prev, [hash]: 'done' }))
         fetchHomeData()
         fetch('/api/sheets/sync', { method: 'POST' }).catch(() => {})
       } else if (res.status === 409) {
-        setGenerating(prev => ({ ...prev, [hash]: 'done' }))
+        if (!force) setGenerating(prev => ({ ...prev, [hash]: 'done' }))
       } else {
-        setGenerating(prev => ({ ...prev, [hash]: 'error' }))
+        if (!force) setGenerating(prev => ({ ...prev, [hash]: 'error' }))
         console.error('Generate failed:', data.error)
       }
     } catch {
-      setGenerating(prev => ({ ...prev, [hash]: 'error' }))
+      if (!force) setGenerating(prev => ({ ...prev, [hash]: 'error' }))
+    } finally {
+      if (force) setRegenerating(prev => ({ ...prev, [hash]: false }))
     }
   }
 
@@ -830,6 +841,7 @@ export default function Home() {
                                   border: '1px solid #d4d8de', cursor: 'pointer',
                                   background: showPasteJd[job.hash] ? '#e8f0fa' : '#f0f2f4',
                                   color: '#6b7785', whiteSpace: 'nowrap', flexShrink: 0,
+                                  alignSelf: 'stretch',
                                 }}
                               >
                                 {showPasteJd[job.hash] ? 'Hide JD' : 'Paste JD'}
@@ -857,26 +869,66 @@ export default function Home() {
                           </div>
                         )
                       }
-                      if (cardState === 'docs_copied' && application?.doc_url) {
-                        return (
-                          <a href={application.doc_url} target="_blank" rel="noopener noreferrer" style={{
-                            flex: 1, padding: 9, borderRadius: 8, fontSize: 12, fontWeight: 600,
-                            textAlign: 'center', background: '#1e3a5f', color: 'white',
-                            textDecoration: 'none', display: 'block',
-                          }}>Open doc →</a>
-                        )
-                      }
                       if (isDraftLike) {
-                        return (
-                          <button
-                            type="button"
-                            onClick={() => setActiveTab('drafts')}
-                            style={{
+                        const primaryBtn = cardState === 'docs_copied' && application?.doc_url
+                          ? <a href={application.doc_url} target="_blank" rel="noopener noreferrer" style={{
+                              flex: 1, padding: 9, borderRadius: 8, fontSize: 12, fontWeight: 600,
+                              textAlign: 'center', background: '#1e3a5f', color: 'white',
+                              textDecoration: 'none', display: 'block',
+                            }}>Open doc →</a>
+                          : <button type="button" onClick={() => setActiveTab('drafts')} style={{
                               flex: 1, padding: 9, borderRadius: 8, fontSize: 12, fontWeight: 600,
                               border: 'none', cursor: 'pointer', textAlign: 'center',
                               background: '#1e3a5f', color: 'white',
-                            }}
-                          >View draft →</button>
+                            }}>View draft →</button>
+                        return (
+                          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                            {showPasteJd[job.hash] && (
+                              <textarea
+                                placeholder="Paste JD to regenerate resume with updated content"
+                                value={pasteJdText[job.hash] ?? ''}
+                                onChange={e => setPasteJdText(prev => ({ ...prev, [job.hash]: e.target.value }))}
+                                rows={5}
+                                style={{
+                                  width: '100%', padding: 8, borderRadius: 8, fontSize: 11,
+                                  border: '1px solid #d4d8de', resize: 'vertical', fontFamily: 'inherit',
+                                  color: '#333', background: '#fafbfc', boxSizing: 'border-box',
+                                }}
+                              />
+                            )}
+                            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                              <button
+                                type="button"
+                                onClick={() => setShowPasteJd(prev => ({ ...prev, [job.hash]: !prev[job.hash] }))}
+                                style={{
+                                  padding: '9px 10px', borderRadius: 8, fontSize: 11, fontWeight: 600,
+                                  border: '1px solid #d4d8de', cursor: 'pointer',
+                                  background: showPasteJd[job.hash] ? '#e8f0fa' : '#f0f2f4',
+                                  color: '#6b7785', whiteSpace: 'nowrap', flexShrink: 0,
+                                  alignSelf: 'stretch',
+                                }}
+                              >
+                                {showPasteJd[job.hash] ? 'Hide JD' : 'Paste JD'}
+                              </button>
+                              {primaryBtn}
+                              {pasteJdText[job.hash]?.trim() && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleGenerate(job.hash, pasteJdText[job.hash], true)}
+                                  disabled={regenerating[job.hash]}
+                                  style={{
+                                    padding: '9px 12px', borderRadius: 8, fontSize: 11, fontWeight: 600,
+                                    border: 'none', cursor: regenerating[job.hash] ? 'default' : 'pointer',
+                                    background: '#4682bf', color: 'white',
+                                    opacity: regenerating[job.hash] ? 0.7 : 1,
+                                    whiteSpace: 'nowrap', flexShrink: 0,
+                                  }}
+                                >
+                                  {regenerating[job.hash] ? 'Regenerating...' : 'Regenerate'}
+                                </button>
+                              )}
+                            </div>
+                          </div>
                         )
                       }
                       return (
@@ -1654,17 +1706,37 @@ export default function Home() {
                           {cardState === 'idle' ? (
                             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6 }}>
                               {showPasteJd[job.hash] && (
-                                <textarea
-                                  placeholder="Paste full JD text here (optional — improves tailoring and archives the posting)"
-                                  value={pasteJdText[job.hash] ?? ''}
-                                  onChange={e => setPasteJdText(prev => ({ ...prev, [job.hash]: e.target.value }))}
-                                  rows={5}
-                                  style={{
-                                    width: '100%', padding: 8, borderRadius: 8, fontSize: 11,
-                                    border: '1px solid #d4d8de', resize: 'vertical', fontFamily: 'inherit',
-                                    color: '#333', background: '#fafbfc', boxSizing: 'border-box',
-                                  }}
-                                />
+                                <>
+                                  <textarea
+                                    placeholder="Paste full JD text here (optional — improves tailoring and archives the posting)"
+                                    value={pasteJdText[job.hash] ?? ''}
+                                    onChange={e => setPasteJdText(prev => ({ ...prev, [job.hash]: e.target.value }))}
+                                    onBlur={async () => {
+                                      const text = pasteJdText[job.hash]?.trim()
+                                      if (!text) return
+                                      setJdSaveState(prev => ({ ...prev, [job.hash]: 'saving' }))
+                                      await fetch(`/api/jobs/${job.hash}/jd-text`, {
+                                        method: 'PATCH',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({ jd_text: text }),
+                                      }).catch(() => {})
+                                      setJdSaveState(prev => ({ ...prev, [job.hash]: 'saved' }))
+                                      setTimeout(() => setJdSaveState(prev => ({ ...prev, [job.hash]: 'idle' })), 2000)
+                                    }}
+                                    rows={5}
+                                    style={{
+                                      width: '100%', padding: 8, borderRadius: 8, fontSize: 11,
+                                      border: '1px solid #d4d8de', resize: 'vertical', fontFamily: 'inherit',
+                                      color: '#333', background: '#fafbfc', boxSizing: 'border-box',
+                                    }}
+                                  />
+                                  {jdSaveState[job.hash] === 'saving' && (
+                                    <span style={{ fontSize: 10, color: '#6b7785' }}>Saving...</span>
+                                  )}
+                                  {jdSaveState[job.hash] === 'saved' && (
+                                    <span style={{ fontSize: 10, color: '#1a8b5f' }}>Saved</span>
+                                  )}
+                                </>
                               )}
                               <div style={{ display: 'flex', gap: 6 }}>
                                 <button
@@ -1675,6 +1747,7 @@ export default function Home() {
                                     border: '1px solid #d4d8de', cursor: 'pointer',
                                     background: showPasteJd[job.hash] ? '#e8f0fa' : '#f0f2f4',
                                     color: '#6b7785', whiteSpace: 'nowrap', flexShrink: 0,
+                                    alignSelf: 'stretch',
                                   }}
                                 >
                                   {showPasteJd[job.hash] ? 'Hide JD' : 'Paste JD'}
@@ -1699,24 +1772,89 @@ export default function Home() {
                                 </button>
                               </div>
                             </div>
-                          ) : cardState === 'docs_copied' && application?.doc_url ? (
-                            <a href={application.doc_url} target="_blank" rel="noopener noreferrer" style={{
-                              flex: 1, padding: 9, borderRadius: 8, fontSize: 12, fontWeight: 600,
-                              textAlign: 'center', background: '#1e3a5f', color: 'white',
-                              textDecoration: 'none', display: 'block',
-                            }}>Open doc →</a>
                           ) : isDraftLike ? (
-                            <button
-                              type="button"
-                              onClick={() => setActiveTab('drafts')}
-                              style={{
-                                flex: 1, padding: 9, borderRadius: 8, fontSize: 12, fontWeight: 600,
-                                border: 'none', cursor: 'pointer', textAlign: 'center',
-                                background: '#1e3a5f', color: 'white',
-                              }}
-                            >
-                              View draft →
-                            </button>
+                            (() => {
+                              const primaryBtn = cardState === 'docs_copied' && application?.doc_url
+                                ? <a href={application.doc_url} target="_blank" rel="noopener noreferrer" style={{
+                                    flex: 1, padding: 9, borderRadius: 8, fontSize: 12, fontWeight: 600,
+                                    textAlign: 'center', background: '#1e3a5f', color: 'white',
+                                    textDecoration: 'none', display: 'block',
+                                  }}>Open doc →</a>
+                                : <button type="button" onClick={() => setActiveTab('drafts')} style={{
+                                    flex: 1, padding: 9, borderRadius: 8, fontSize: 12, fontWeight: 600,
+                                    border: 'none', cursor: 'pointer', textAlign: 'center',
+                                    background: '#1e3a5f', color: 'white',
+                                  }}>View draft →</button>
+                              return (
+                                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                  {showPasteJd[job.hash] && (
+                                    <>
+                                      <textarea
+                                        placeholder="Paste JD to regenerate resume with updated content"
+                                        value={pasteJdText[job.hash] ?? ''}
+                                        onChange={e => setPasteJdText(prev => ({ ...prev, [job.hash]: e.target.value }))}
+                                        onBlur={async () => {
+                                          const text = pasteJdText[job.hash]?.trim()
+                                          if (!text) return
+                                          setJdSaveState(prev => ({ ...prev, [job.hash]: 'saving' }))
+                                          await fetch(`/api/jobs/${job.hash}/jd-text`, {
+                                            method: 'PATCH',
+                                            headers: { 'Content-Type': 'application/json' },
+                                            body: JSON.stringify({ jd_text: text }),
+                                          }).catch(() => {})
+                                          setJdSaveState(prev => ({ ...prev, [job.hash]: 'saved' }))
+                                          setTimeout(() => setJdSaveState(prev => ({ ...prev, [job.hash]: 'idle' })), 2000)
+                                        }}
+                                        rows={5}
+                                        style={{
+                                          width: '100%', padding: 8, borderRadius: 8, fontSize: 11,
+                                          border: '1px solid #d4d8de', resize: 'vertical', fontFamily: 'inherit',
+                                          color: '#333', background: '#fafbfc', boxSizing: 'border-box',
+                                        }}
+                                      />
+                                      {jdSaveState[job.hash] === 'saving' && (
+                                        <span style={{ fontSize: 10, color: '#6b7785' }}>Saving...</span>
+                                      )}
+                                      {jdSaveState[job.hash] === 'saved' && (
+                                        <span style={{ fontSize: 10, color: '#1a8b5f' }}>Saved</span>
+                                      )}
+                                    </>
+                                  )}
+                                  <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                                    <button
+                                      type="button"
+                                      onClick={() => setShowPasteJd(prev => ({ ...prev, [job.hash]: !prev[job.hash] }))}
+                                      style={{
+                                        padding: '9px 10px', borderRadius: 8, fontSize: 11, fontWeight: 600,
+                                        border: '1px solid #d4d8de', cursor: 'pointer',
+                                        background: showPasteJd[job.hash] ? '#e8f0fa' : '#f0f2f4',
+                                        color: '#6b7785', whiteSpace: 'nowrap', flexShrink: 0,
+                                        alignSelf: 'stretch',
+                                      }}
+                                    >
+                                      {showPasteJd[job.hash] ? 'Hide JD' : 'Paste JD'}
+                                    </button>
+                                    {primaryBtn}
+                                    {pasteJdText[job.hash]?.trim() && (
+                                      <button
+                                        type="button"
+                                        onClick={() => handleGenerate(job.hash, pasteJdText[job.hash], true)}
+                                        disabled={regenerating[job.hash]}
+                                        style={{
+                                          padding: '9px 12px', borderRadius: 8, fontSize: 11, fontWeight: 600,
+                                          border: 'none', cursor: regenerating[job.hash] ? 'default' : 'pointer',
+                                          background: '#4682bf', color: 'white',
+                                          opacity: regenerating[job.hash] ? 0.7 : 1,
+                                          whiteSpace: 'nowrap', flexShrink: 0,
+                                        }}
+                                      >
+                                        {regenerating[job.hash] ? 'Regenerating...' : 'Regenerate'}
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+                              )
+                            })()
                           ) : (
                             <button
                               type="button"
