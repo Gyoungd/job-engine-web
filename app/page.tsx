@@ -68,7 +68,7 @@ interface PipelineSummary {
   response: number
 }
 
-type TabId = 'home' | 'search' | 'drafts' | 'pipeline' | 'profile'
+type TabId = 'home' | 'add' | 'search' | 'drafts' | 'pipeline' | 'profile'
 type GenState = 'idle' | 'loading' | 'done' | 'error'
 
 /* ─── constants ─── */
@@ -121,6 +121,7 @@ const STATUS_LABELS: Record<string, { label: string; color: string; bg: string }
 
 const TAB_ITEMS: { id: TabId; label: string; icon: string }[] = [
   { id: 'home', label: 'Home', icon: 'home' },
+  { id: 'add', label: 'Add', icon: 'plus' },
   { id: 'search', label: 'Search', icon: 'search' },
   { id: 'drafts', label: 'Drafts', icon: 'drafts' },
   { id: 'pipeline', label: 'Pipeline', icon: 'pipeline' },
@@ -185,6 +186,13 @@ function TabIcon({ type, active }: { type: string; active: boolean }) {
         <svg width={w} height={w} viewBox="0 0 24 24" fill="none">
           <circle cx="12" cy="8" r="4" stroke={color} strokeWidth="1.6" />
           <path d="M4 21c0-4 4-7 8-7s8 3 8 7" stroke={color} strokeWidth="1.6" strokeLinecap="round" />
+        </svg>
+      )
+    case 'plus':
+      return (
+        <svg width={w} height={w} viewBox="0 0 24 24" fill="none">
+          <circle cx="12" cy="12" r="9" stroke={color} strokeWidth="1.6" />
+          <path d="M12 8v8M8 12h8" stroke={color} strokeWidth="1.8" strokeLinecap="round" />
         </svg>
       )
     default:
@@ -289,6 +297,25 @@ export default function Home() {
   const [pipelineStatusFilter, setPipelineStatusFilter] = useState<string>('all')
   const [editingNotes, setEditingNotes] = useState<Record<string, string>>({})
   const [savingField, setSavingField] = useState<Record<string, boolean>>({})
+
+  /* ─── Add tab state ─── */
+  type AddStep = 'form' | 'review' | 'docs'
+  const [addStep, setAddStep] = useState<AddStep>('form')
+  const [addForm, setAddForm] = useState({ company: '', title: '', location: '', url: '', role: 'DA' as 'DA' | 'DS' | 'DE', jdText: '' })
+  const [addResult, setAddResult] = useState<{
+    hash: string
+    applicationId: string
+    resumeChanges: string
+    suitPct: number | null
+    tier: string | null
+    classifiedRole: string
+  } | null>(null)
+  const [addDocUrl, setAddDocUrl] = useState<string | null>(null)
+  const [addLoading, setAddLoading] = useState(false)
+  const [addDocLoading, setAddDocLoading] = useState(false)
+  const [addAppliedLoading, setAddAppliedLoading] = useState(false)
+  const [addAppliedDone, setAddAppliedDone] = useState(false)
+  const [addExpandedChanges, setAddExpandedChanges] = useState(false)
 
   /* ─── Home tab data fetch ─── */
   const fetchHomeData = useCallback(async () => {
@@ -651,6 +678,110 @@ export default function Home() {
     }
   }
 
+  /* ─── Add tab: submit form → create job + generate resume ─── */
+  async function handleAddSubmit() {
+    if (!addForm.company.trim() || !addForm.title.trim() || addLoading) return
+    setAddLoading(true)
+    try {
+      const createRes = await fetch('/api/jobs/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          company: addForm.company,
+          title: addForm.title,
+          location: addForm.location,
+          url: addForm.url || undefined,
+          classified_role: addForm.role,
+          jd_text: addForm.jdText.trim() || undefined,
+        }),
+      })
+      const createData = await createRes.json()
+      if (!createRes.ok) throw new Error(createData.error ?? 'Failed to create job')
+
+      const genRes = await fetch('/api/generate-resume', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jd_hash: createData.hash,
+          jd_text: addForm.jdText.trim() || undefined,
+          force: true,
+        }),
+      })
+      const genData = await genRes.json()
+      if (!genRes.ok && genRes.status !== 409) throw new Error(genData.error ?? 'Generate failed')
+
+      setAddResult({
+        hash: createData.hash,
+        applicationId: genData.application_id,
+        resumeChanges: genData.resume_changes ?? '',
+        suitPct: genData.suitability_pct ?? null,
+        tier: genData.tier ?? null,
+        classifiedRole: genData.classified_role ?? addForm.role,
+      })
+      setAddStep('review')
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Something went wrong')
+    } finally {
+      setAddLoading(false)
+    }
+  }
+
+  /* ─── Add tab: generate docs ─── */
+  async function handleAddCopyDocs() {
+    if (!addResult || addDocLoading) return
+    setAddDocLoading(true)
+    try {
+      const res = await fetch('/api/docs/copy-base', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ application_id: addResult.applicationId }),
+      })
+      const data = await res.json()
+      if (data.error) { alert(`Doc generation failed: ${data.error}`); return }
+      if (data.doc_url) {
+        setAddDocUrl(data.doc_url)
+        setAddStep('docs')
+        window.open(data.doc_url, '_blank')
+      }
+    } catch (e) {
+      console.error('Add copy docs failed:', e)
+    } finally {
+      setAddDocLoading(false)
+    }
+  }
+
+  /* ─── Add tab: mark applied ─── */
+  async function handleAddMarkApplied() {
+    if (!addResult || addAppliedLoading) return
+    setAddAppliedLoading(true)
+    try {
+      const res = await fetch('/api/applications/mark-applied', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ application_id: addResult.applicationId }),
+      })
+      if (res.ok) {
+        setAddAppliedDone(true)
+        fetch('/api/sheets/sync', { method: 'POST' }).catch(() => {})
+        fetchHomeData()
+      }
+    } catch (e) {
+      console.error('Add mark applied failed:', e)
+    } finally {
+      setAddAppliedLoading(false)
+    }
+  }
+
+  /* ─── Add tab: reset to form ─── */
+  function handleAddReset() {
+    setAddStep('form')
+    setAddResult(null)
+    setAddDocUrl(null)
+    setAddAppliedDone(false)
+    setAddExpandedChanges(false)
+    setAddForm({ company: '', title: '', location: '', url: '', role: 'DA', jdText: '' })
+  }
+
   /* ═══════════════════════════════════════════
      RENDER
      ═══════════════════════════════════════════ */
@@ -679,6 +810,7 @@ export default function Home() {
             <div>
               <h1 style={{ fontSize: 24, fontWeight: 600, color: '#1a2332', letterSpacing: -0.5 }}>
                 {activeTab === 'home' ? 'Job Dashboard' :
+                 activeTab === 'add' ? 'Add Job' :
                  activeTab === 'drafts' ? 'Resume Drafts' :
                  activeTab === 'pipeline' ? 'Pipeline' :
                  activeTab === 'search' ? 'Search Jobs' :
@@ -1136,6 +1268,346 @@ export default function Home() {
                 </div>
               </div>
             </>
+          )}
+
+          {/* ═══ ADD TAB ═══ */}
+          {activeTab === 'add' && (
+            <div style={{ padding: '0 20px 20px' }}>
+
+              {/* ── Step 1: Form ── */}
+              {addStep === 'form' && (
+                <div>
+                  <p style={{ fontSize: 13, color: '#6b7785', margin: '12px 0 20px', lineHeight: 1.5 }}>
+                    직접 찾은 롤의 JD를 입력하면 resume 생성 → Google Doc → Mark Applied까지 파이프라인을 실행합니다.
+                  </p>
+
+                  {/* Company */}
+                  <div style={{ marginBottom: 14 }}>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: '#1a2332', display: 'block', marginBottom: 6 }}>
+                      Company <span style={{ color: '#c0392b' }}>*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={addForm.company}
+                      onChange={e => setAddForm(f => ({ ...f, company: e.target.value }))}
+                      placeholder="e.g. Canva"
+                      style={{
+                        width: '100%', padding: '10px 12px', borderRadius: 10, fontSize: 14,
+                        border: '1.5px solid #dde4ef', outline: 'none', boxSizing: 'border-box',
+                        background: 'white', color: '#1a2332',
+                      }}
+                    />
+                  </div>
+
+                  {/* Title */}
+                  <div style={{ marginBottom: 14 }}>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: '#1a2332', display: 'block', marginBottom: 6 }}>
+                      Job Title <span style={{ color: '#c0392b' }}>*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={addForm.title}
+                      onChange={e => setAddForm(f => ({ ...f, title: e.target.value }))}
+                      placeholder="e.g. Data Analyst"
+                      style={{
+                        width: '100%', padding: '10px 12px', borderRadius: 10, fontSize: 14,
+                        border: '1.5px solid #dde4ef', outline: 'none', boxSizing: 'border-box',
+                        background: 'white', color: '#1a2332',
+                      }}
+                    />
+                  </div>
+
+                  {/* Location + URL row */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 14 }}>
+                    <div>
+                      <label style={{ fontSize: 12, fontWeight: 600, color: '#1a2332', display: 'block', marginBottom: 6 }}>
+                        Location
+                      </label>
+                      <input
+                        type="text"
+                        value={addForm.location}
+                        onChange={e => setAddForm(f => ({ ...f, location: e.target.value }))}
+                        placeholder="Melbourne"
+                        style={{
+                          width: '100%', padding: '10px 12px', borderRadius: 10, fontSize: 13,
+                          border: '1.5px solid #dde4ef', outline: 'none', boxSizing: 'border-box',
+                          background: 'white', color: '#1a2332',
+                        }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 12, fontWeight: 600, color: '#1a2332', display: 'block', marginBottom: 6 }}>
+                        JD URL
+                      </label>
+                      <input
+                        type="url"
+                        value={addForm.url}
+                        onChange={e => setAddForm(f => ({ ...f, url: e.target.value }))}
+                        placeholder="https://..."
+                        style={{
+                          width: '100%', padding: '10px 12px', borderRadius: 10, fontSize: 13,
+                          border: '1.5px solid #dde4ef', outline: 'none', boxSizing: 'border-box',
+                          background: 'white', color: '#1a2332',
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Role */}
+                  <div style={{ marginBottom: 14 }}>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: '#1a2332', display: 'block', marginBottom: 8 }}>
+                      Role Type
+                      <span style={{ fontSize: 11, fontWeight: 400, color: '#6b7785', marginLeft: 6 }}>(Claude가 override 가능)</span>
+                    </label>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      {(['DA', 'DS', 'DE'] as const).map(r => (
+                        <button
+                          key={r}
+                          onClick={() => setAddForm(f => ({ ...f, role: r }))}
+                          style={{
+                            padding: '7px 18px', borderRadius: 20, fontSize: 12, fontWeight: 600,
+                            border: 'none', cursor: 'pointer',
+                            background: addForm.role === r ? (ROLE_COLORS[r] ?? '#4682bf') : '#f0f5fa',
+                            color: addForm.role === r ? 'white' : '#4682bf',
+                          }}
+                        >
+                          {r}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* JD Text */}
+                  <div style={{ marginBottom: 20 }}>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: '#1a2332', display: 'block', marginBottom: 6 }}>
+                      Job Description
+                      <span style={{ fontSize: 11, fontWeight: 400, color: '#1a8b5f', marginLeft: 6 }}>권고 — 없으면 품질 저하</span>
+                    </label>
+                    <textarea
+                      value={addForm.jdText}
+                      onChange={e => setAddForm(f => ({ ...f, jdText: e.target.value }))}
+                      placeholder="LinkedIn / 회사 사이트에서 JD 전체를 붙여넣으세요..."
+                      rows={8}
+                      style={{
+                        width: '100%', padding: '10px 12px', borderRadius: 10, fontSize: 13,
+                        border: '1.5px solid #dde4ef', outline: 'none', boxSizing: 'border-box',
+                        background: 'white', color: '#1a2332', resize: 'vertical', lineHeight: 1.5,
+                        fontFamily: 'inherit',
+                      }}
+                    />
+                  </div>
+
+                  {/* Submit */}
+                  <button
+                    onClick={handleAddSubmit}
+                    disabled={!addForm.company.trim() || !addForm.title.trim() || addLoading}
+                    style={{
+                      width: '100%', padding: '13px', borderRadius: 12, fontSize: 14, fontWeight: 600,
+                      border: 'none', cursor: addLoading || !addForm.company.trim() || !addForm.title.trim() ? 'not-allowed' : 'pointer',
+                      background: addLoading || !addForm.company.trim() || !addForm.title.trim() ? '#c8d8ec' : '#4682bf',
+                      color: 'white',
+                    }}
+                  >
+                    {addLoading ? 'Generating resume...' : 'Generate Resume'}
+                  </button>
+                </div>
+              )}
+
+              {/* ── Step 2: Review resume changes ── */}
+              {addStep === 'review' && addResult && (
+                <div>
+                  {/* Job header */}
+                  <div style={{
+                    background: 'white', borderRadius: 14, padding: 16,
+                    border: '1px solid #e8eef5', marginBottom: 14,
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+                      <div>
+                        <div style={{ fontSize: 15, fontWeight: 600, color: '#1a2332', lineHeight: 1.3 }}>
+                          {addForm.title}
+                        </div>
+                        <div style={{ fontSize: 13, color: '#4682bf', fontWeight: 500, marginTop: 2 }}>
+                          {addForm.company}
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                        <RoleBadge role={addResult.classifiedRole} />
+                        {addResult.tier && (
+                          <span style={{
+                            fontSize: 11, fontWeight: 700, padding: '3px 8px', borderRadius: 6,
+                            background: addResult.tier === 'A' ? '#e6f7ef' : '#fef9e7',
+                            color: addResult.tier === 'A' ? '#1a8b5f' : '#b8860b',
+                          }}>
+                            Tier {addResult.tier}
+                          </span>
+                        )}
+                        {addResult.suitPct != null && (
+                          <span style={{
+                            fontSize: 11, fontWeight: 600,
+                            color: addResult.suitPct >= 80 ? '#1a8b5f' : '#b8860b',
+                          }}>
+                            {addResult.suitPct}%
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Resume changes preview */}
+                  {addResult.resumeChanges && (
+                    <div
+                      onClick={() => setAddExpandedChanges(e => !e)}
+                      style={{
+                        background: '#f8fafb', borderRadius: 12, padding: 14,
+                        marginBottom: 14, cursor: 'pointer', border: '1px solid #e8eef5',
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: addExpandedChanges ? 8 : 0 }}>
+                        <span style={{ fontSize: 11, fontWeight: 600, color: '#4682bf', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                          Resume Changes
+                        </span>
+                        <span style={{ fontSize: 11, color: '#6b7785' }}>
+                          {addExpandedChanges ? '▲ Collapse' : '▼ Expand'}
+                        </span>
+                      </div>
+                      {addExpandedChanges ? (
+                        <pre style={{
+                          fontSize: 11.5, color: '#1a2332', lineHeight: 1.5,
+                          whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+                          maxHeight: 420, overflowY: 'auto', margin: 0,
+                          fontFamily: 'ui-monospace, "SF Mono", Menlo, monospace',
+                        }}>
+                          {addResult.resumeChanges}
+                        </pre>
+                      ) : (
+                        <div style={{ fontSize: 12, color: '#6b7785', lineHeight: 1.4, marginTop: 4 }}>
+                          {truncate(addResult.resumeChanges, 120)}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Actions */}
+                  <div style={{ display: 'flex', gap: 10 }}>
+                    <button
+                      onClick={() => setAddStep('form')}
+                      style={{
+                        flex: 1, padding: '12px', borderRadius: 12, fontSize: 13, fontWeight: 600,
+                        border: '1.5px solid #dde4ef', cursor: 'pointer',
+                        background: 'white', color: '#4682bf',
+                      }}
+                    >
+                      ← Back
+                    </button>
+                    <button
+                      onClick={handleAddCopyDocs}
+                      disabled={addDocLoading}
+                      style={{
+                        flex: 2, padding: '12px', borderRadius: 12, fontSize: 13, fontWeight: 600,
+                        border: 'none', cursor: addDocLoading ? 'not-allowed' : 'pointer',
+                        background: addDocLoading ? '#c8d8ec' : '#4682bf', color: 'white',
+                      }}
+                    >
+                      {addDocLoading ? 'Creating doc...' : 'Generate Docs'}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* ── Step 3: Doc created + Mark Applied ── */}
+              {addStep === 'docs' && addResult && (
+                <div>
+                  {/* Job header */}
+                  <div style={{
+                    background: 'white', borderRadius: 14, padding: 16,
+                    border: '1px solid #e8eef5', marginBottom: 14,
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                      <div>
+                        <div style={{ fontSize: 15, fontWeight: 600, color: '#1a2332', lineHeight: 1.3 }}>
+                          {addForm.title}
+                        </div>
+                        <div style={{ fontSize: 13, color: '#4682bf', fontWeight: 500, marginTop: 2 }}>
+                          {addForm.company}
+                        </div>
+                      </div>
+                      <RoleBadge role={addResult.classifiedRole} />
+                    </div>
+                  </div>
+
+                  {/* Doc ready banner */}
+                  <div style={{
+                    background: '#e6f7ef', borderRadius: 12, padding: '14px 16px',
+                    marginBottom: 14, border: '1px solid #b7e0cc',
+                    display: 'flex', alignItems: 'center', gap: 10,
+                  }}>
+                    <span style={{ fontSize: 18 }}>✓</span>
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: '#1a8b5f' }}>Google Doc 생성 완료</div>
+                      <div style={{ fontSize: 12, color: '#2e7d5e', marginTop: 2 }}>검토 후 Mark Applied</div>
+                    </div>
+                  </div>
+
+                  {/* Applied success banner */}
+                  {addAppliedDone && (
+                    <div style={{
+                      background: '#e8f0fe', borderRadius: 12, padding: '14px 16px',
+                      marginBottom: 14, border: '1px solid #b4cde7',
+                      display: 'flex', alignItems: 'center', gap: 10,
+                    }}>
+                      <span style={{ fontSize: 18 }}>✓</span>
+                      <div>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: '#4682bf' }}>Applied 기록 완료</div>
+                        <div style={{ fontSize: 12, color: '#4682bf', marginTop: 2 }}>Pipeline + Google Sheets에 반영됨</div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Action buttons */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    {addDocUrl && (
+                      <a
+                        href={addDocUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{
+                          display: 'block', padding: '12px', borderRadius: 12, fontSize: 13, fontWeight: 600,
+                          border: '1.5px solid #4682bf', textAlign: 'center',
+                          background: 'white', color: '#4682bf', textDecoration: 'none',
+                        }}
+                      >
+                        Open Resume Doc
+                      </a>
+                    )}
+
+                    {!addAppliedDone && (
+                      <button
+                        onClick={handleAddMarkApplied}
+                        disabled={addAppliedLoading}
+                        style={{
+                          padding: '13px', borderRadius: 12, fontSize: 13, fontWeight: 600,
+                          border: 'none', cursor: addAppliedLoading ? 'not-allowed' : 'pointer',
+                          background: addAppliedLoading ? '#c8d8ec' : '#1a8b5f', color: 'white',
+                        }}
+                      >
+                        {addAppliedLoading ? 'Recording...' : 'Mark Applied'}
+                      </button>
+                    )}
+
+                    <button
+                      onClick={handleAddReset}
+                      style={{
+                        padding: '12px', borderRadius: 12, fontSize: 13, fontWeight: 600,
+                        border: '1.5px solid #dde4ef', cursor: 'pointer',
+                        background: 'white', color: '#6b7785',
+                      }}
+                    >
+                      {addAppliedDone ? 'Add Another Job' : 'Start Over'}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
           )}
 
           {/* ═══ DRAFTS TAB ═══ */}
