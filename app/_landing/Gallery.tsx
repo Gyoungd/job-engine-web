@@ -1,12 +1,22 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import type { ComponentType } from 'react'
+import { DashboardMock } from './mocks/DashboardMock'
+import { SearchMock } from './mocks/SearchMock'
+import { DraftsMock } from './mocks/DraftsMock'
+import { PipelineMock } from './mocks/PipelineMock'
 
-const SHOTS = [
-  { src: '/landing/dashboard.png', label: 'Dashboard · ranked queue', alt: 'Dashboard preview' },
-  { src: '/landing/search.png', label: 'Search · filter + sort', alt: 'Search preview' },
-  { src: '/landing/drafts.png', label: 'Drafts · resume diff per role', alt: 'Drafts preview' },
-  { src: '/landing/pipeline.png', label: 'Pipeline · status + notes', alt: 'Pipeline preview' },
-] as const
+const SHOTS: ReadonlyArray<{
+  src: string
+  label: string
+  alt: string
+  Mock: ComponentType
+}> = [
+  { src: '/landing/dashboard.png', label: 'Dashboard · ranked queue', alt: 'Dashboard preview', Mock: DashboardMock },
+  { src: '/landing/search.png', label: 'Search · filter + sort', alt: 'Search preview', Mock: SearchMock },
+  { src: '/landing/drafts.png', label: 'Drafts · resume diff per role', alt: 'Drafts preview', Mock: DraftsMock },
+  { src: '/landing/pipeline.png', label: 'Pipeline · status + notes', alt: 'Pipeline preview', Mock: PipelineMock },
+]
 
 function getShots() {
   const publicDir = path.join(process.cwd(), 'public')
@@ -30,7 +40,7 @@ export function Gallery() {
             Four surfaces behind the sign-in.
           </h2>
           <p className="mt-3 text-sm text-landing-secondary">
-            Anonymized — real company names and scores have been redacted.
+            Rendered mockups using the live dashboard&apos;s palette — no real data behind the sign-in is shown.
           </p>
         </div>
 
@@ -38,7 +48,7 @@ export function Gallery() {
           <div
             className="flex snap-x snap-mandatory gap-4 px-6 sm:px-8"
             role="region"
-            aria-label="App screenshot gallery"
+            aria-label="App preview gallery"
             tabIndex={0}
           >
             {shots.map((s) => (
@@ -49,21 +59,9 @@ export function Gallery() {
                 <div className="relative overflow-hidden rounded-2xl border border-landing-border bg-white shadow-sm">
                   {s.exists ? (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={s.src}
-                      alt={s.alt}
-                      loading="lazy"
-                      className="block h-auto w-full"
-                    />
+                    <img src={s.src} alt={s.alt} loading="lazy" className="block h-auto w-full" />
                   ) : (
-                    <div
-                      aria-label={s.alt}
-                      className="flex aspect-[9/16] items-center justify-center bg-gradient-to-br from-zinc-50 to-zinc-100 p-6 text-center"
-                    >
-                      <span className="font-mono text-[11px] uppercase tracking-wider text-zinc-400">
-                        {s.alt}
-                      </span>
-                    </div>
+                    <s.Mock />
                   )}
                 </div>
                 <figcaption className="mt-3 px-1 font-mono text-[11px] uppercase tracking-wider text-landing-subtle">
