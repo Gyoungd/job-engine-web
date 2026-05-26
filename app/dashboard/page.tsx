@@ -1297,7 +1297,7 @@ export default function Home() {
               {addStep === 'form' && (
                 <div>
                   <p style={{ fontSize: 13, color: '#6b7785', margin: '12px 0 20px', lineHeight: 1.5 }}>
-                    직접 찾은 롤의 JD를 입력하면 resume 생성 → Google Doc → Mark Applied까지 파이프라인을 실행합니다.
+                    Add a JD in manual to create resume → Google Doc → Mark Applied Pipeline flow.
                   </p>
 
                   {/* Company */}
@@ -1400,12 +1400,12 @@ export default function Home() {
                   <div style={{ marginBottom: 20 }}>
                     <label style={{ fontSize: 12, fontWeight: 600, color: '#1a2332', display: 'block', marginBottom: 6 }}>
                       Job Description
-                      <span style={{ fontSize: 11, fontWeight: 400, color: '#1a8b5f', marginLeft: 6 }}>권고 — 없으면 품질 저하</span>
+                      <span style={{ fontSize: 11, fontWeight: 400, color: '#1a8b5f', marginLeft: 6 }}>Recommended — Not to be left blank for quality</span>
                     </label>
                     <textarea
                       value={addForm.jdText}
                       onChange={e => setAddForm(f => ({ ...f, jdText: e.target.value }))}
-                      placeholder="LinkedIn / 회사 사이트에서 JD 전체를 붙여넣으세요..."
+                      placeholder="LinkedIn / Company page JD text (the more details the better, but can be left blank)"
                       rows={8}
                       style={{
                         width: '100%', padding: '10px 12px', borderRadius: 10, fontSize: 13,
@@ -2419,7 +2419,7 @@ export default function Home() {
                       background: ROLE_COLORS[r] ?? '#6c9bcd', color: 'white',
                     }}>{r}</span>
                   ))}
-                  {['Melbourne', 'Seoul', 'Singapore', 'Malaysia'].map(r => (
+                  {['Melbourne', 'Seoul'].map(r => (
                     <span key={r} style={{
                       fontSize: 11, fontWeight: 500, padding: '4px 10px', borderRadius: 6,
                       background: '#f0f5fa', color: '#4682bf',
