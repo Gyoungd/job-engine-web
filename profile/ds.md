@@ -1,7 +1,7 @@
 **Gayoung Dan**
 
 Data Scientist | Machine Learning & Predictive Modelling
-Melbourne | gayoung.dan.data@gmail.com | +61 422 145 349 | [LinkedIn](http://www.linkedin.com/in/gayoung-dan) | Full work rights (Graduate Visa 485)
+Melbourne | gayoung.dan.data@gmail.com | {{PHONE}} | [LinkedIn](http://www.linkedin.com/in/gayoung-dan) | Full work rights (Graduate Visa 485)
 
 Master of Data Science graduate specialising in machine learning and time-series forecasting using Python and SQL. Experienced in feature engineering, random forest modelling, and RMSE-based evaluation for predictive analytics.
 

@@ -15,7 +15,8 @@ function preClassifyRole(title: string): 'DA' | 'DS' | 'DE' {
 function loadBaseResume(role: 'DA' | 'DS' | 'DE'): string {
   try {
     const file = path.join(process.cwd(), 'profile', `${role.toLowerCase()}.md`)
-    return fs.readFileSync(file, 'utf-8')
+    const raw = fs.readFileSync(file, 'utf-8')
+    return raw.replaceAll('{{PHONE}}', process.env.RESUME_PHONE ?? '')
   } catch {
     return ''
   }

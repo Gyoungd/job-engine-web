@@ -1,7 +1,7 @@
 **Gayoung Dan**
 
 Data Analyst | SQL, Power BI & Performance Reporting
-Melbourne | gayoung.dan.data@gmail.com | +61 422 145 349 | [LinkedIn](http://www.linkedin.com/in/gayoung-dan) | Full work rights (Graduate Visa 485)
+Melbourne | gayoung.dan.data@gmail.com | {{PHONE}} | [LinkedIn](http://www.linkedin.com/in/gayoung-dan) | Full work rights (Graduate Visa 485)
 
 Data Analyst with hands-on experience in SQL-driven analysis, Excel-based reporting, and stakeholder-ready documentation. Experienced in KPI tracking, data governance, and translating program data into clear insights for cross-functional teams.
 

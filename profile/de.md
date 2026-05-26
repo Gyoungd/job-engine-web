@@ -1,7 +1,7 @@
 **Gayoung Dan**
 
 Data Engineer | Distributed Data Processing | Spark & SQL
-Melbourne | gayoung.dan.data@gmail.com | +61 422 145 349 | [LinkedIn](http://www.linkedin.com/in/gayoung-dan) | Full work rights (Graduate Visa 485)
+Melbourne | gayoung.dan.data@gmail.com | {{PHONE}} | [LinkedIn](http://www.linkedin.com/in/gayoung-dan) | Full work rights (Graduate Visa 485)
 
 Data Engineer specialising in Spark-based distributed processing, SQL data modelling, and ETL pipeline design. Experienced in building scalable data workflows and streaming architectures for production-ready analytics systems.
 

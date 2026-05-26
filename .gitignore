@@ -42,3 +42,6 @@ next-env.d.ts
 
 # Credentials
 .credentials/
+
+# Local collection logs
+scripts/logs/
