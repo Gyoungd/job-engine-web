@@ -24,9 +24,14 @@ export function StackStrip() {
             <p className="mt-3 text-sm leading-relaxed text-landing-secondary">
               No exotic frameworks. The interesting part is the workflow:
               every feature starts as a spec in{' '}
-              <code className="rounded bg-landing-muted px-1 py-0.5 font-mono text-[12px]">
+              <a
+                href="https://github.com/Gyoungd/job-engine-web/blob/main/PRODUCT_SPEC.md"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="rounded bg-landing-muted px-1 py-0.5 font-mono text-[12px] text-landing-primary underline decoration-landing-border underline-offset-2 transition-colors hover:bg-landing-border hover:decoration-landing-accent"
+              >
                 PRODUCT_SPEC.md
-              </code>
+              </a>
               , then Claude Code authors the implementation under direction.
               I own the architecture, schema, and review.
             </p>
