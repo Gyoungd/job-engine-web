@@ -1,5 +1,18 @@
 @import "tailwindcss";
 
+@theme inline {
+  --color-landing-bg: #fafafa;
+  --color-landing-fg: #09090b;
+  --color-landing-primary: #18181b;
+  --color-landing-secondary: #3f3f46;
+  --color-landing-accent: #2563eb;
+  --color-landing-muted: #e8ecf0;
+  --color-landing-border: #e4e4e7;
+  --color-landing-subtle: #71717a;
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+}
+
 :root {
   --je-primary: #4682bf;
   --je-secondary: #6c9bcd;
@@ -18,9 +31,6 @@
 }
 
 * {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
   -webkit-tap-highlight-color: transparent;
 }
 
