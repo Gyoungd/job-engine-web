@@ -59,6 +59,7 @@ interface Application {
   submitted_at: string | null
   created_at: string
   updated_at: string
+  doc_generated_at?: string | null
   seen_jobs: ApplicationJob
 }
 
@@ -371,11 +372,12 @@ export default function Home() {
   }
 
   /* ─── Generate resume (Sonnet) ─── */
-  async function handleGenerate(hash: string, jdText?: string, force = false) {
-    if (!force) {
-      const existingDraft = getQueueApplicationForHash(hash, jobs, searchJobs)
-      if (existingDraft || generating[hash] === 'loading' || generating[hash] === 'done') return
-    }
+  async function handleGenerate(hash: string, jdText?: string, forceOverride?: boolean) {
+    if (generating[hash] === 'loading' || regenerating[hash]) return
+
+    const existingDraft = getQueueApplicationForHash(hash, jobs, searchJobs)
+    const force = forceOverride ?? !!existingDraft
+
     if (force) {
       setRegenerating(prev => ({ ...prev, [hash]: true }))
     } else {
@@ -393,6 +395,11 @@ export default function Home() {
       const data = await res.json()
       if (res.ok) {
         if (!force) setGenerating(prev => ({ ...prev, [hash]: 'done' }))
+        // Clear pasted JD textarea on success — it's been persisted to seen_jobs.jd_text
+        setPasteJdText(prev => ({ ...prev, [hash]: '' }))
+        setShowPasteJd(prev => ({ ...prev, [hash]: false }))
+        // Drafts tab auto-refetches on activation; trigger now if user is already there
+        if (activeTab === 'drafts') fetchDrafts()
         fetchHomeData()
         fetch('/api/sheets/sync', { method: 'POST' }).catch(() => {})
       } else if (res.status === 409) {
@@ -462,14 +469,20 @@ export default function Home() {
   }, [activeTab, fetchDrafts])
 
   /* ─── Generate Docs ─── */
-  async function handleCopyDocs(appId: string) {
+  async function handleCopyDocs(appId: string, force = false) {
     if (copyingDoc[appId]) return
+    if (force) {
+      const ok = window.confirm(
+        '기존 Google Doc은 Drive 휴지통으로 이동되고, 최신 resume_changes로 새 문서가 생성됩니다.\nRegenerate now?'
+      )
+      if (!ok) return
+    }
     setCopyingDoc(prev => ({ ...prev, [appId]: true }))
     try {
       const res = await fetch('/api/docs/copy-base', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ application_id: appId }),
+        body: JSON.stringify({ application_id: appId, force }),
       })
       const data = await res.json()
       console.log('[Generate Docs] API response:', data)
@@ -939,7 +952,8 @@ export default function Home() {
                     const role = job.classified_role?.toUpperCase() ?? 'DA'
                     const roleColor = ROLE_COLORS[role] ?? '#6c9bcd'
                     const isActive = job.queued || (Date.now() - new Date(job.first_seen).getTime()) < 7 * 24 * 60 * 60 * 1000
-                    const genState = isDraftLike ? 'done' as GenState : (generating[job.hash] ?? 'idle')
+                    const genState: GenState = generating[job.hash] ?? 'idle'
+                    const isRegenerating = !!regenerating[job.hash]
 
                     const cardStyle: CSSProperties = {
                       background: isDraftLike ? '#f8fbff' : 'white',
@@ -1021,7 +1035,7 @@ export default function Home() {
                         )
                       }
                       if (isDraftLike) {
-                        const primaryBtn = cardState === 'docs_copied' && application?.doc_url
+                        const navBtn = cardState === 'docs_copied' && application?.doc_url
                           ? <a href={application.doc_url} target="_blank" rel="noopener noreferrer" style={{
                               flex: 1, padding: 9, borderRadius: 8, fontSize: 12, fontWeight: 600,
                               textAlign: 'center', background: '#1e3a5f', color: 'white',
@@ -1047,7 +1061,7 @@ export default function Home() {
                                 }}
                               />
                             )}
-                            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                            <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
                               <button
                                 type="button"
                                 onClick={() => setShowPasteJd(prev => ({ ...prev, [job.hash]: !prev[job.hash] }))}
@@ -1061,23 +1075,20 @@ export default function Home() {
                               >
                                 {showPasteJd[job.hash] ? 'Hide JD' : 'Paste JD'}
                               </button>
-                              {primaryBtn}
-                              {pasteJdText[job.hash]?.trim() && (
-                                <button
-                                  type="button"
-                                  onClick={() => handleGenerate(job.hash, pasteJdText[job.hash], true)}
-                                  disabled={regenerating[job.hash]}
-                                  style={{
-                                    padding: '9px 12px', borderRadius: 8, fontSize: 11, fontWeight: 600,
-                                    border: 'none', cursor: regenerating[job.hash] ? 'default' : 'pointer',
-                                    background: '#4682bf', color: 'white',
-                                    opacity: regenerating[job.hash] ? 0.7 : 1,
-                                    whiteSpace: 'nowrap', flexShrink: 0,
-                                  }}
-                                >
-                                  {regenerating[job.hash] ? 'Regenerating...' : 'Regenerate'}
-                                </button>
-                              )}
+                              <button
+                                type="button"
+                                onClick={() => handleGenerate(job.hash, pasteJdText[job.hash], true)}
+                                disabled={isRegenerating}
+                                style={{
+                                  flex: 1, padding: 9, borderRadius: 8, fontSize: 12, fontWeight: 600,
+                                  border: 'none', cursor: isRegenerating ? 'default' : 'pointer',
+                                  background: '#4682bf', color: 'white',
+                                  opacity: isRegenerating ? 0.7 : 1,
+                                }}
+                              >
+                                {isRegenerating ? 'Regenerating...' : 'Regenerate resume'}
+                              </button>
+                              {navBtn}
                             </div>
                           </div>
                         )
@@ -1744,20 +1755,46 @@ export default function Home() {
                           </a>
                         )}
 
-                        {draft.status === 'draft' && !draft.doc_url && (
-                          <button
-                            onClick={() => handleCopyDocs(draft.id)}
-                            disabled={!!copyingDoc[draft.id]}
-                            style={{
-                              flex: 1, padding: 9, borderRadius: 8, fontSize: 12, fontWeight: 600,
-                              border: 'none', cursor: copyingDoc[draft.id] ? 'default' : 'pointer',
-                              background: '#b4cde7', color: '#4682bf',
-                              opacity: copyingDoc[draft.id] ? 0.7 : 1,
-                            }}
-                          >
-                            {copyingDoc[draft.id] ? 'Generating...' : 'Generate Docs'}
-                          </button>
-                        )}
+                        {(() => {
+                          const isDocStale = !!draft.doc_url && !!draft.doc_generated_at
+                            && new Date(draft.updated_at).getTime() > new Date(draft.doc_generated_at).getTime() + 2000
+                          const canGenerate = draft.status === 'draft' || draft.status === 'docs_copied'
+                          if (!canGenerate) return null
+                          if (!draft.doc_url) {
+                            return (
+                              <button
+                                onClick={() => handleCopyDocs(draft.id)}
+                                disabled={!!copyingDoc[draft.id]}
+                                style={{
+                                  flex: 1, padding: 9, borderRadius: 8, fontSize: 12, fontWeight: 600,
+                                  border: 'none', cursor: copyingDoc[draft.id] ? 'default' : 'pointer',
+                                  background: '#b4cde7', color: '#4682bf',
+                                  opacity: copyingDoc[draft.id] ? 0.7 : 1,
+                                }}
+                              >
+                                {copyingDoc[draft.id] ? 'Generating...' : 'Generate Docs'}
+                              </button>
+                            )
+                          }
+                          if (isDocStale) {
+                            return (
+                              <button
+                                onClick={() => handleCopyDocs(draft.id, true)}
+                                disabled={!!copyingDoc[draft.id]}
+                                title="Resume changes were updated after the last Doc was generated"
+                                style={{
+                                  flex: 1, padding: 9, borderRadius: 8, fontSize: 12, fontWeight: 600,
+                                  border: 'none', cursor: copyingDoc[draft.id] ? 'default' : 'pointer',
+                                  background: '#fef9e7', color: '#b8860b',
+                                  opacity: copyingDoc[draft.id] ? 0.7 : 1,
+                                }}
+                              >
+                                {copyingDoc[draft.id] ? 'Regenerating...' : '↻ Regenerate Docs'}
+                              </button>
+                            )
+                          }
+                          return null
+                        })()}
 
                         {draft.doc_url && (
                           <a href={draft.doc_url} target="_blank" rel="noopener noreferrer" style={{
@@ -2118,7 +2155,8 @@ export default function Home() {
                     const cardState = getCardState(application)
                     const isApplied = !!(application && (APPLIED_STATUSES as readonly string[]).includes(application.status))
                     const isDraftLike = !!(application && (ACTIVE_DRAFT_STATUSES as readonly string[]).includes(application.status))
-                    const genState = isDraftLike ? 'done' as GenState : (generating[job.hash] ?? 'idle')
+                    const genState: GenState = generating[job.hash] ?? 'idle'
+                    const isRegenerating = !!regenerating[job.hash]
                     const role = job.classified_role?.toUpperCase() ?? 'DA'
 
                     return (
@@ -2246,11 +2284,11 @@ export default function Home() {
                                 <button
                                   type="button"
                                   onClick={() => handleGenerate(job.hash, pasteJdText[job.hash])}
-                                  disabled={genState !== 'idle'}
+                                  disabled={genState === 'loading'}
                                   style={{
                                     flex: 1, padding: 9, borderRadius: 8, fontSize: 12, fontWeight: 600,
                                     border: 'none', textAlign: 'center',
-                                    cursor: genState === 'idle' ? 'pointer' : 'default',
+                                    cursor: genState === 'loading' ? 'default' : 'pointer',
                                     background: genState === 'done' ? '#1e3a5f' : genState === 'error' ? '#c0392b' : '#b4cde7',
                                     color: genState === 'done' || genState === 'error' ? 'white' : '#4682bf',
                                     opacity: genState === 'loading' ? 0.7 : 1,
@@ -2265,7 +2303,7 @@ export default function Home() {
                             </div>
                           ) : isDraftLike ? (
                             (() => {
-                              const primaryBtn = cardState === 'docs_copied' && application?.doc_url
+                              const navBtn = cardState === 'docs_copied' && application?.doc_url
                                 ? <a href={application.doc_url} target="_blank" rel="noopener noreferrer" style={{
                                     flex: 1, padding: 9, borderRadius: 8, fontSize: 12, fontWeight: 600,
                                     textAlign: 'center', background: '#1e3a5f', color: 'white',
@@ -2311,7 +2349,7 @@ export default function Home() {
                                       )}
                                     </>
                                   )}
-                                  <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                                  <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
                                     <button
                                       type="button"
                                       onClick={() => setShowPasteJd(prev => ({ ...prev, [job.hash]: !prev[job.hash] }))}
@@ -2325,23 +2363,20 @@ export default function Home() {
                                     >
                                       {showPasteJd[job.hash] ? 'Hide JD' : 'Paste JD'}
                                     </button>
-                                    {primaryBtn}
-                                    {pasteJdText[job.hash]?.trim() && (
-                                      <button
-                                        type="button"
-                                        onClick={() => handleGenerate(job.hash, pasteJdText[job.hash], true)}
-                                        disabled={regenerating[job.hash]}
-                                        style={{
-                                          padding: '9px 12px', borderRadius: 8, fontSize: 11, fontWeight: 600,
-                                          border: 'none', cursor: regenerating[job.hash] ? 'default' : 'pointer',
-                                          background: '#4682bf', color: 'white',
-                                          opacity: regenerating[job.hash] ? 0.7 : 1,
-                                          whiteSpace: 'nowrap', flexShrink: 0,
-                                        }}
-                                      >
-                                        {regenerating[job.hash] ? 'Regenerating...' : 'Regenerate'}
-                                      </button>
-                                    )}
+                                    <button
+                                      type="button"
+                                      onClick={() => handleGenerate(job.hash, pasteJdText[job.hash], true)}
+                                      disabled={isRegenerating}
+                                      style={{
+                                        flex: 1, padding: 9, borderRadius: 8, fontSize: 12, fontWeight: 600,
+                                        border: 'none', cursor: isRegenerating ? 'default' : 'pointer',
+                                        background: '#4682bf', color: 'white',
+                                        opacity: isRegenerating ? 0.7 : 1,
+                                      }}
+                                    >
+                                      {isRegenerating ? 'Regenerating...' : 'Regenerate resume'}
+                                    </button>
+                                    {navBtn}
                                   </div>
                                 </div>
                               )

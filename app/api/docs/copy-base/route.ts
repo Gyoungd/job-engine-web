@@ -82,6 +82,7 @@ export async function POST(req: NextRequest) {
     const body = await req.json()
     const applicationId: string = body.application_id
     const roleOverride: string | undefined = body.role?.toUpperCase()
+    const force: boolean = !!body.force
 
     if (!applicationId) {
       return NextResponse.json({ error: 'application_id is required' }, { status: 400 })
@@ -97,13 +98,28 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Application not found' }, { status: 404 })
     }
 
-    if (app.doc_url) {
+    if (app.doc_url && !force) {
       return NextResponse.json({
         doc_url: app.doc_url,
         doc_id: app.doc_id,
         message: 'Document already exists',
         db_verified: true,
       })
+    }
+
+    // If regenerating, soft-delete the previous doc by moving it to Drive trash
+    let trashedOldDocId: string | null = null
+    let trashError: string | undefined
+    if (force && app.doc_id) {
+      try {
+        const drive = getUserDrive()
+        await drive.files.update({ fileId: app.doc_id, requestBody: { trashed: true } })
+        trashedOldDocId = app.doc_id
+        console.log(`[copy-base] Trashed previous doc ${app.doc_id}`)
+      } catch (e) {
+        trashError = e instanceof Error ? e.message : 'Unknown error'
+        console.warn('[copy-base] Failed to trash previous doc:', trashError)
+      }
     }
 
     const role = roleOverride ?? app.classified_role ?? app.seen_jobs?.classified_role ?? 'DA'
@@ -161,11 +177,32 @@ export async function POST(req: NextRequest) {
     }
 
     // Update DB
-    const { data: updated, error: err1 } = await supabaseAdmin
+    const generatedAt = new Date().toISOString()
+    const updatePayload: Record<string, unknown> = {
+      doc_id: newDocId,
+      doc_url: docUrl,
+      status: 'docs_copied',
+      doc_generated_at: generatedAt,
+    }
+    let { data: updated, error: err1 } = await supabaseAdmin
       .from('applications')
-      .update({ doc_id: newDocId, doc_url: docUrl, status: 'docs_copied' })
+      .update(updatePayload)
       .eq('id', applicationId)
       .select('id, status, doc_url, doc_id')
+
+    // Retry without doc_generated_at if the column doesn't exist yet
+    if (err1 && /doc_generated_at/i.test(err1.message ?? '')) {
+      console.warn('[copy-base] doc_generated_at column missing — retrying without it')
+      const { doc_generated_at: _omit, ...fallback } = updatePayload
+      void _omit
+      const retry = await supabaseAdmin
+        .from('applications')
+        .update(fallback)
+        .eq('id', applicationId)
+        .select('id, status, doc_url, doc_id')
+      updated = retry.data
+      err1 = retry.error
+    }
 
     if (err1) {
       console.error('[copy-base] Update error:', JSON.stringify(err1))
@@ -211,6 +248,11 @@ export async function POST(req: NextRequest) {
       doc_id: newDocId, doc_url: docUrl, file_name: fileName, role,
       db_verified: true,
       changes_applied: changesApplied, changes_error: changesError,
+      projects_applied: projectsApplied,
+      project_errors: projectErrors,
+      regenerated: force,
+      trashed_old_doc_id: trashedOldDocId,
+      trash_error: trashError,
     })
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'Unknown error'

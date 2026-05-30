@@ -333,14 +333,23 @@ Only use skills and projects from the verified lists in your system prompt.`
       seenJobsUpdate.score = suitabilityPct
       seenJobsUpdate.classified_role = classifiedRole
     }
-    if (resolvedJdText && !job.jd_text) {
+    // Persist JD text whenever the user supplied a new/edited version, or when nothing was stored before
+    const userProvidedJd = !!jdText?.trim()
+    if (resolvedJdText && (userProvidedJd || !job.jd_text)) {
       seenJobsUpdate.jd_text = resolvedJdText
+      seenJobsUpdate.jd_updated_at = new Date().toISOString()
     }
     if (Object.keys(seenJobsUpdate).length > 0) {
-      await supabaseAdmin
+      const { error: seenErr } = await supabaseAdmin
         .from('seen_jobs')
         .update(seenJobsUpdate)
         .eq('hash', jdHash)
+      // If jd_updated_at column doesn't exist yet, retry without it
+      if (seenErr && 'jd_updated_at' in seenJobsUpdate) {
+        const { jd_updated_at: _ignored, ...fallback } = seenJobsUpdate as Record<string, unknown>
+        void _ignored
+        await supabaseAdmin.from('seen_jobs').update(fallback).eq('hash', jdHash)
+      }
     }
 
     return NextResponse.json({
