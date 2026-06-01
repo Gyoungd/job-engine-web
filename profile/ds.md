@@ -11,7 +11,7 @@ Machine Learning (Random Forest, Regression, Clustering) | Time-Series Forecasti
 Feature Engineering | Model Evaluation (RMSE, Cross-Validation) | Data Wrangling
 
 **PROFESSIONAL EXPERIENCE**
-**S&I Corp. (LG-Affiliated Company)** Wroclaw, Poland
+**S&I POLAND** Wroclaw, Poland
 *Planning Assistant Manager* May 2021 – June 2022
 
 * Conducted financial data analysis and cash flow forecasting to support strategic planning decisions

@@ -13,7 +13,7 @@ Big Data: Apache Spark (RDD, DataFrame, SparkSQL) | Spark Structured Streaming |
 Data Engineering: ETL Pipelines | Data Validation | Dimensional Modelling | PostgreSQL
 
 **PROFESSIONAL EXPERIENCE**
-**S&I Corp. (LG-Affiliated Company)** Wroclaw, Poland
+**S&I POLAND** Wroclaw, Poland
 *Planning Assistant Manager* May 2021 – June 2022
 
 * Conducted financial data analysis and forecasting

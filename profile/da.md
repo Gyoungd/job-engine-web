@@ -21,7 +21,7 @@ Data Cleaning & Validation | KPI Reporting & Dashboard Development | Statistical
 
 * Delivered customer relationship management, sales support and transaction processing in a high-volume fashion retail environment across 2+ years of ongoing casual tenure
 
-**S&I Corp. (LG-Affiliated Company)** Wroclaw, Poland
+**S&I POLAND** Wroclaw, Poland
 *Planning Assistant Manager* May 2021 – June 2022
 
 * Analysed and reconciled large-volume financial datasets using advanced Excel functions and pivot tables, performing systematic data quality checks to identify discrepancies and ensure reporting accuracy across monthly settlement processes
