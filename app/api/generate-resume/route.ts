@@ -55,6 +55,16 @@ HARD CONSTRAINTS — NEVER VIOLATE:
 - NEVER add project content not in the projects inventory below
 - ALWAYS perform Project Base scan
 
+FACTUAL INTEGRITY GUARDRAILS (verified against raw data / public repos / DB — these override any conflicting wording in a base resume):
+- NUMBER WHITELIST — the ONLY quantified figures permitted in any output are: OR 1.45 · marketing p<0.001 · n=41,188 · 7 segments · Quantium uplift 2-of-3 stores p<0.05 · total sales $1,933,115 · R²=0.88 vs 0.57 · 360 SA2 regions · 27,717 stops · 59,483 meshblocks · service intensity inner-city ≈16,260 vs outer 0.01 · Kaggle 2nd place. Do NOT generate, round, or invent any figure outside this list.
+- QUANTIUM is R-only. NEVER associate SQL with the Quantium project. SQL/PostGIS capability is anchored exclusively to the Melbourne Transport project.
+- QUANTIUM is a "Data Analytics Job Simulation (Forage)", self-completed. NEVER label it as an internship, paid role, or work experience.
+- Quantium uplift significance is p<0.05 (2 of 3 trial stores), NOT p<0.001. The p<0.001 figure belongs ONLY to the Marketing Campaign project (OR 1.45).
+- Melbourne service intensity is an absolute range (inner ≈16,260 vs outer 0.01), NOT a "16,000x" ratio/multiplier. Never phrase it as a multiple.
+- S&I POLAND: Planning Assistant Manager, Apr 2021 – Jul 2022. NEVER tag it as "LG affiliate" or any conglomerate affiliation.
+- ML methods limited to: Random Forest, XGBoost, GBM, K-means, hierarchical clustering, K-NN, lag-feature engineering. NEVER claim SVM (theory only, not applied).
+- ALWAYS perform Project Base scan
+
 CANDIDATE SKILLS (VERIFIED — do NOT add anything outside this list):
 ${SKILLS_MATRIX}
 

@@ -25,8 +25,10 @@ export const SKILLS_MATRIX = `
 - PostgreSQL, MySQL, Oracle (basic)
 
 ### ML & Statistics
-- scikit-learn (Random Forest, Logistic Regression, classification, regression)
-- Spark MLlib (GBT, RF, Pipeline, CrossValidator, ParamGridBuilder)
+- Tree-based ensembles: Random Forest, XGBoost, Gradient Boosting (GBM)
+- Clustering: K-means, hierarchical; K-Nearest Neighbours (K-NN)
+- Feature engineering: lag-feature engineering for time-series
+- scikit-learn (classification, regression), Spark MLlib (GBT, RF, Pipeline, CrossValidator, ParamGridBuilder)
 - A/B testing, logistic regression, causal inference, uplift testing
 - RMSE, AUC, F1, Odds Ratio, p-value interpretation
 
@@ -64,14 +66,17 @@ export const PROJECTS_INVENTORY = `
 2. Digital Nomad Data Visualisation | Monash University (June 2025)
    - Multi-index scoring model, clustering, interactive dashboard (R Shiny, Leaflet, ggplot2)
 
-3. Customer Segmentation & Market Strategy | Quantium Virtual Internship (Feb 2025)
-   - R-based retail analysis, uplift testing (p<0.001), 7-segment reporting package
+3. Customer Segmentation & Market Strategy | Quantium — Data Analytics Job Simulation (Forage), self-completed (Feb 2025)
+   - R-only retail transaction analysis (no SQL), uplift testing (2 of 3 trial stores significant, p<0.05), 7-segment reporting package, total sales $1,933,115
+   - NOTE: Forage job simulation — never label as internship or paid/work experience
 
 4. Stock Market Volatility Prediction | Kaggle, Monash University (Sep 2024)
    - Random forest time-series forecasting, 2nd place private leaderboard
 
-5. Melbourne Transport Accessibility Analysis | SQL, Tableau, Spatial Data (Jan 2026)
-   - PostGIS + GTFS across 360 suburbs, 59,000+ stops; R²=0.88 route coverage model
+5. Melbourne Transport Accessibility Analysis | SQL, PostGIS, Tableau, Spatial Data (Jan 2026)
+   - SQL + PostGIS across 360 SA2 regions, 27,717 stops, 59,483 meshblocks; R²=0.88 vs 0.57 route coverage model
+   - Weekday service intensity: inner-city peak ≈16,260 vs outer minimum 0.01 (NOT a ratio/multiplier)
+   - NOTE: SQL & PostGIS capability is anchored to THIS project only
 
 6. Distributed Property Market Analytics | Apache Spark, PySpark (Oct 2025)
    - 4.8M+ records, RDD vs DataFrame vs SparkSQL benchmarking

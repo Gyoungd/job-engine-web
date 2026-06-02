@@ -14,7 +14,7 @@ Data Engineering: ETL Pipelines | Data Validation | Dimensional Modelling | Post
 
 **PROFESSIONAL EXPERIENCE**
 **S&I POLAND** Wroclaw, Poland
-*Planning Assistant Manager* May 2021 – June 2022
+*Planning Assistant Manager* April 2021 – July 2022
 
 * Conducted financial data analysis and forecasting
 * Delivered data-backed operational optimisation insights

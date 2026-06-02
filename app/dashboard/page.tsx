@@ -259,6 +259,9 @@ export default function Home() {
   const [drafts, setDrafts] = useState<Application[]>([])
   const [draftsLoading, setDraftsLoading] = useState(false)
   const [draftsFilter, setDraftsFilter] = useState<string>('all')
+  const [draftsQuery, setDraftsQuery] = useState('')
+  const [draftsRole, setDraftsRole] = useState('all')
+  const [draftsSort, setDraftsSort] = useState('newest')
   const [expandedDraft, setExpandedDraft] = useState<string | null>(null)
   const [copyingDoc, setCopyingDoc] = useState<Record<string, boolean>>({})
   const [markingApplied, setMarkingApplied] = useState<Record<string, boolean>>({})
@@ -1641,10 +1644,41 @@ export default function Home() {
           )}
 
           {/* ═══ DRAFTS TAB ═══ */}
-          {activeTab === 'drafts' && (
+          {activeTab === 'drafts' && (() => {
+            const q = draftsQuery.trim().toLowerCase()
+            const visibleDrafts = drafts
+              .filter(d => draftsRole === 'all' || (d.classified_role?.toUpperCase() ?? 'DA') === draftsRole)
+              .filter(d => {
+                if (!q) return true
+                const job = d.seen_jobs
+                return (job?.title ?? '').toLowerCase().includes(q)
+                  || (job?.company ?? '').toLowerCase().includes(q)
+              })
+              .sort((a, b) => {
+                if (draftsSort === 'fit') return (b.suitability_pct ?? 0) - (a.suitability_pct ?? 0)
+                const ta = new Date(a.created_at).getTime()
+                const tb = new Date(b.created_at).getTime()
+                return draftsSort === 'oldest' ? ta - tb : tb - ta
+              })
+            return (
             <div style={{ padding: '0 20px 20px' }}>
-              {/* Filter bar */}
-              <div style={{ display: 'flex', gap: 8, margin: '12px 0 16px', flexWrap: 'wrap' }}>
+              {/* Search input */}
+              <div style={{ margin: '12px 0 10px' }}>
+                <input
+                  type="text"
+                  value={draftsQuery}
+                  onChange={e => setDraftsQuery(e.target.value)}
+                  placeholder="Search drafts by title or company..."
+                  style={{
+                    width: '100%', padding: '10px 14px', borderRadius: 10, fontSize: 13,
+                    border: '1px solid #e8eef5', outline: 'none', color: '#1a2332',
+                    background: 'white', boxSizing: 'border-box',
+                  }}
+                />
+              </div>
+
+              {/* Status filter bar */}
+              <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
                 {['all', 'draft', 'docs_copied', 'submitted'].map(f => (
                   <button
                     key={f}
@@ -1662,17 +1696,39 @@ export default function Home() {
                 ))}
               </div>
 
+              {/* Role filter + sort */}
+              <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 16 }}>
+                <select value={draftsRole} onChange={e => setDraftsRole(e.target.value)}
+                  style={{ flex: 1, padding: '8px 10px', borderRadius: 8, fontSize: 12, border: '1px solid #e8eef5', background: 'white', color: '#1a2332', cursor: 'pointer', minWidth: 80 }}>
+                  <option value="all">All Roles</option>
+                  <option value="DA">DA</option>
+                  <option value="DS">DS</option>
+                  <option value="DE">DE</option>
+                </select>
+                <span style={{ fontSize: 12, color: '#6b7785', whiteSpace: 'nowrap' }}>
+                  {visibleDrafts.length} result{visibleDrafts.length === 1 ? '' : 's'}
+                </span>
+                <select value={draftsSort} onChange={e => setDraftsSort(e.target.value)}
+                  style={{ padding: '8px 10px', borderRadius: 8, fontSize: 12, border: '1px solid #e8eef5', background: 'white', color: '#1a2332', cursor: 'pointer' }}>
+                  <option value="newest">Newest</option>
+                  <option value="oldest">Oldest</option>
+                  <option value="fit">Fit ↓</option>
+                </select>
+              </div>
+
               {draftsLoading ? (
                 <div style={{ textAlign: 'center', padding: 40, color: '#6b7785', fontSize: 13 }}>Loading drafts...</div>
-              ) : drafts.length === 0 ? (
+              ) : visibleDrafts.length === 0 ? (
                 <div style={{
                   background: 'white', borderRadius: 16, padding: 32,
                   border: '1px solid #e8eef5', textAlign: 'center', color: '#6b7785', fontSize: 13,
                 }}>
-                  No drafts found. Generate resumes from the Home tab.
+                  {drafts.length === 0
+                    ? 'No drafts found. Generate resumes from the Home tab.'
+                    : 'No drafts match your search.'}
                 </div>
               ) : (
-                drafts.map(draft => {
+                visibleDrafts.map(draft => {
                   const isExpanded = expandedDraft === draft.id
                   const job = draft.seen_jobs
                   return (
@@ -1842,7 +1898,8 @@ export default function Home() {
                 })
               )}
             </div>
-          )}
+            )
+          })()}
 
           {/* ═══ PIPELINE TAB ═══ */}
           {activeTab === 'pipeline' && (

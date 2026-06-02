@@ -22,22 +22,22 @@ Data Cleaning & Validation | KPI Reporting & Dashboard Development | Statistical
 * Delivered customer relationship management, sales support and transaction processing in a high-volume fashion retail environment across 2+ years of ongoing casual tenure
 
 **S&I POLAND** Wroclaw, Poland
-*Planning Assistant Manager* May 2021 – June 2022
+*Planning Assistant Manager* April 2021 – July 2022
 
 * Analysed and reconciled large-volume financial datasets using advanced Excel functions and pivot tables, performing systematic data quality checks to identify discrepancies and ensure reporting accuracy across monthly settlement processes
 * Collaborated with cross-functional teams and external stakeholders to consolidate reporting inputs and deliver insight-driven financial summaries to management, ensuring alignment across architectural, electrical, and mechanical divisions
 
 **PROJECTS**
-**Customer Segmentation & Market Strategy Analysis for Chips Category | *Quantium*** *Feb 2025*
+**Customer Segmentation & Market Strategy Analysis for Chips Category | *Quantium Data Analytics Job Simulation (Forage)*** *Feb 2025*
 
-* Analysed large-scale retail transactional datasets using R to identify primary revenue drivers, delivering segmentation findings with actionable shelf placement recommendations to the Category Manager
-* Conducted uplift testing across 3 trial stores, identifying statistically significant sales uplift in 2 locations (p < 0.001) to support evidence-based rollout recommendations to stakeholders
+* Aggregated and pre-processed large-scale retail transactional datasets using R to identify primary revenue drivers, delivering segmentation findings with actionable shelf placement recommendations to the Category Manager
+* Conducted uplift testing across 3 trial stores, identifying statistically significant sales uplift in 2 of 3 locations (p < 0.05) to support evidence-based expansion recommendations
 * Synthesised customer segmentation and trial results into a consolidated reporting package, communicating key findings and strategic recommendations across 7 customer segments to support category-level decision-making
 
 **Melbourne Transport Accessibility Analysis | *SQL, Tableau & Spatial Data Analysis*** *Jan 2026*
 
-* Built a suburb-level analytical dataset using SQL and PostGIS by integrating GTFS operational data and ABS spatial datasets across 360 suburbs and 59,000+ stops, ensuring structured, analysis-ready reporting tables
-* Designed and implemented transport accessibility KPIs in a Tableau reporting dashboard to quantify service inequality across 360 Melbourne suburbs, identifying outer-growth corridors with up to 16,000x lower service intensity than inner-CBD areas
+* Built a suburb-level analytical dataset using SQL and PostGIS by integrating GTFS operational data and ABS spatial datasets across 360 SA2 regions, 27,717 stops and 59,483 meshblocks, ensuring structured, analysis-ready reporting tables
+* Designed and implemented transport accessibility KPIs in a Tableau reporting dashboard to quantify service inequality across 360 Melbourne suburbs, surfacing the gap between weekday service intensity at inner-city peaks (≈16,260) and outer growth corridors (as low as 0.01)
 * Demonstrated route coverage as a stronger driver of service provision than stop density (R²=0.88 vs 0.57), surfacing 10 bottom-quartile suburbs as priority intervention zones
 
 **Marketing Campaign Causal Evaluation | *A/B Testing, Logistic Regression, Power BI*** *Jan 2026*
