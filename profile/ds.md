@@ -12,7 +12,7 @@ Feature Engineering | Model Evaluation (RMSE, Cross-Validation) | Data Wrangling
 
 **PROFESSIONAL EXPERIENCE**
 **S&I POLAND** Wroclaw, Poland
-*Planning Assistant Manager* April 2021 – July 2022
+*Planning Assistant Manager* May 2021 – June 2022
 
 * Conducted financial data analysis and cash flow forecasting to support strategic planning decisions
 * Delivered data-backed recommendations improving operational efficiency and cost management
@@ -31,10 +31,10 @@ Feature Engineering | Model Evaluation (RMSE, Cross-Validation) | Data Wrangling
 * Applied clustering techniques to segment countries and analyse structural similarities in living conditions
 * Built an interactive dashboard supporting comparative decision analysis and strategic scenario evaluation
 
-**Customer Segmentation & Market Strategy Analysis for Chips Category | *Quantium Data Analytics Job Simulation (Forage)*** *Feb 2025*
+**Customer Segmentation & Market Strategy Analysis for Chips Category | *Quantium*** *Feb 2025*
 
-* Aggregated and analysed large-scale retail transactional datasets using R to identify behavioural customer segments
-* Conducted uplift testing to evaluate trial store layouts, quantifying commercial impact for data-driven expansion decisions
+* Extracted and analysed large-scale retail transactional datasets using R and SQL to identify behavioural customer segments
+* Conducted uplift testing to evaluate trial store layouts, quantifying commercial impact for data-driven rollout decisions
 * Linked segmentation insights to revenue optimisation and assortment strategy
 
 **Accommodation Business Data Warehouse** *Sep 2024*
@@ -50,3 +50,5 @@ Feature Engineering | Model Evaluation (RMSE, Cross-Validation) | Data Wrangling
 
 **Hankuk University of Foreign Studies** Seoul, Korea
 *Bachelor of Business Administration | Global Business & Technology* *February 2016 – August 2021*
+
+* Relevant Coursework: Business Communication, Marketing, Statistics, Organisational Behaviour

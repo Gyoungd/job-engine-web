@@ -299,6 +299,8 @@ export default function Home() {
   const [pipelineLoading, setPipelineLoading] = useState(false)
   const [pipelineSort, setPipelineSort] = useState<'newest' | 'oldest' | 'score'>('newest')
   const [pipelineStatusFilter, setPipelineStatusFilter] = useState<string>('all')
+  const [pipelineQuery, setPipelineQuery] = useState('')
+  const [pipelineRole, setPipelineRole] = useState('all')
   const [editingNotes, setEditingNotes] = useState<Record<string, string>>({})
   const [savingField, setSavingField] = useState<Record<string, boolean>>({})
 
@@ -608,21 +610,13 @@ export default function Home() {
       const statusParam = pipelineStatusFilter === 'all' ? '' : `&status=${pipelineStatusFilter}`
       const res = await fetch(`/api/applications?limit=100${statusParam}`)
       const data = await res.json()
-      let apps: Application[] = data.applications ?? []
-
-      if (pipelineSort === 'oldest') {
-        apps.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
-      } else if (pipelineSort === 'score') {
-        apps.sort((a, b) => (b.suitability_pct ?? 0) - (a.suitability_pct ?? 0))
-      }
-
-      setPipelineApps(apps)
+      setPipelineApps(data.applications ?? [])
     } catch (e) {
       console.error('Pipeline fetch failed:', e)
     } finally {
       setPipelineLoading(false)
     }
-  }, [pipelineSort, pipelineStatusFilter])
+  }, [pipelineStatusFilter])
 
   useEffect(() => {
     if (activeTab === 'pipeline') fetchPipeline()
@@ -1902,7 +1896,22 @@ export default function Home() {
           })()}
 
           {/* ═══ PIPELINE TAB ═══ */}
-          {activeTab === 'pipeline' && (
+          {activeTab === 'pipeline' && (() => {
+            const pq = pipelineQuery.trim().toLowerCase()
+            const visibleApps = pipelineApps
+              .filter(a => pipelineRole === 'all' || (a.classified_role?.toUpperCase() ?? 'DA') === pipelineRole)
+              .filter(a => {
+                if (!pq) return true
+                const job = a.seen_jobs
+                return (job?.title ?? '').toLowerCase().includes(pq)
+                  || (job?.company ?? '').toLowerCase().includes(pq)
+              })
+              .sort((a, b) => {
+                if (pipelineSort === 'oldest') return new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+                if (pipelineSort === 'score') return (b.suitability_pct ?? 0) - (a.suitability_pct ?? 0)
+                return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+              })
+            return (
             <div style={{ padding: '0 0 20px' }}>
               {/* Sticky header: stats + filters */}
               <div style={{
@@ -1911,7 +1920,7 @@ export default function Home() {
               }}>
               {/* Summary row */}
               <div style={{
-                display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, margin: '12px 0 16px',
+                display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, margin: '12px 0 12px',
               }}>
                 {[
                   { num: pipeline.submitted, label: 'Submitted', color: '#4682bf' },
@@ -1928,13 +1937,35 @@ export default function Home() {
                 ))}
               </div>
 
+              {/* Search input */}
+              <div style={{ margin: '0 0 8px' }}>
+                <input
+                  type="text"
+                  value={pipelineQuery}
+                  onChange={e => setPipelineQuery(e.target.value)}
+                  placeholder="Search by title or company..."
+                  style={{
+                    width: '100%', padding: '10px 14px', borderRadius: 10, fontSize: 13,
+                    border: '1px solid #e8eef5', outline: 'none', color: '#1a2332',
+                    background: 'white', boxSizing: 'border-box',
+                  }}
+                />
+              </div>
+
               {/* Filters & sort */}
-              <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
+                <select value={pipelineRole} onChange={e => setPipelineRole(e.target.value)}
+                  style={{ padding: '7px 10px', borderRadius: 8, fontSize: 12, border: '1px solid #e8eef5', background: 'white', color: '#1a2332', cursor: 'pointer', minWidth: 80 }}>
+                  <option value="all">All Roles</option>
+                  <option value="DA">DA</option>
+                  <option value="DS">DS</option>
+                  <option value="DE">DE</option>
+                </select>
                 <select
                   value={pipelineStatusFilter}
                   onChange={e => setPipelineStatusFilter(e.target.value)}
                   style={{
-                    padding: '7px 12px', borderRadius: 8, fontSize: 12, fontWeight: 500,
+                    padding: '7px 10px', borderRadius: 8, fontSize: 12, fontWeight: 500,
                     border: '1px solid #e8eef5', background: 'white', color: '#1a2332',
                     cursor: 'pointer', flex: 1,
                   }}
@@ -1948,40 +1979,45 @@ export default function Home() {
                   value={pipelineSort}
                   onChange={e => setPipelineSort(e.target.value as 'newest' | 'oldest' | 'score')}
                   style={{
-                    padding: '7px 12px', borderRadius: 8, fontSize: 12, fontWeight: 500,
+                    padding: '7px 10px', borderRadius: 8, fontSize: 12, fontWeight: 500,
                     border: '1px solid #e8eef5', background: 'white', color: '#1a2332',
-                    cursor: 'pointer', flex: 1,
+                    cursor: 'pointer',
                   }}
                 >
-                  <option value="newest">Newest first</option>
-                  <option value="oldest">Oldest first</option>
-                  <option value="score">Score desc</option>
+                  <option value="newest">Newest</option>
+                  <option value="oldest">Oldest</option>
+                  <option value="score">Score ↓</option>
                 </select>
                 <button
                   onClick={fetchPipeline}
                   style={{
-                    padding: '7px 14px', borderRadius: 8, fontSize: 12, fontWeight: 600,
+                    padding: '7px 12px', borderRadius: 8, fontSize: 12, fontWeight: 600,
                     border: 'none', cursor: 'pointer', background: '#4682bf', color: 'white',
                   }}
                 >
                   Refresh
                 </button>
               </div>
+
+              {/* Results count */}
+              <div style={{ fontSize: 12, color: '#6b7785', marginBottom: 8 }}>
+                {visibleApps.length} result{visibleApps.length === 1 ? '' : 's'}
+              </div>
               </div>{/* end sticky header */}
 
               <div style={{ padding: '0 20px' }}>
               {pipelineLoading ? (
                 <div style={{ textAlign: 'center', padding: 40, color: '#6b7785', fontSize: 13 }}>Loading pipeline...</div>
-              ) : pipelineApps.length === 0 ? (
+              ) : visibleApps.length === 0 ? (
                 <div style={{
                   background: 'white', borderRadius: 16, padding: 32,
                   border: '1px solid #e8eef5', textAlign: 'center', color: '#6b7785', fontSize: 13,
                 }}>
-                  No applications yet.
+                  {pipelineApps.length === 0 ? 'No applications yet.' : 'No applications match your search.'}
                 </div>
               ) : (
                 /* Pipeline table — mobile card view */
-                pipelineApps.map(app => {
+                visibleApps.map(app => {
                   const job = app.seen_jobs
                   const isEditingNote = editingNotes[app.id] !== undefined
                   return (
@@ -2116,7 +2152,8 @@ export default function Home() {
               )}
               </div>{/* end content area */}
             </div>
-          )}
+            )
+          })()}
 
           {/* ═══ SEARCH TAB ═══ */}
           {activeTab === 'search' && (
